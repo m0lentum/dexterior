@@ -35,7 +35,7 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
             indices: Vec::new(),
         });
 
-        // highest dimension simplices have given indices
+        // highest dimension simplices have the indices given as parameter
         simplices[DIM - 1].indices = indices;
 
         // rest of the levels are inferred from boundaries of the top-level simplices
@@ -96,6 +96,7 @@ mod tests {
     use super::*;
 
     type Vec2 = na::SVector<f64, 2>;
+    type Vec3 = na::SVector<f64, 3>;
 
     /// A small hexagon-shaped 2D mesh for testing basic functionality.
     /// Shaped somewhat like this:
@@ -106,7 +107,7 @@ mod tests {
     ///   \/__\/
     ///
     /// with vertices and triangles ordered left to right, top to bottom.
-    fn simple_mesh_2d() -> SimplicialMesh<2> {
+    fn tiny_mesh_2d() -> SimplicialMesh<2> {
         let vertices = vec![
             Vec2::new(-0.5, 1.0),
             Vec2::new(0.5, 1.0),
@@ -128,11 +129,46 @@ mod tests {
         SimplicialMesh::new(vertices, indices)
     }
 
+    /// A small 3D mesh for testing basic functionality.
+    /// Four tetrahedra arranged into a diamond shape,
+    /// split like this down the x,y plane:
+    ///
+    ///    /\
+    ///   /__\
+    ///   \  /
+    ///    \/
+    ///
+    /// and with a single point both up and down the z-axis.
+    fn tiny_mesh_3d() -> SimplicialMesh<3> {
+        let vertices = vec![
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(-0.5, 0.0, 0.0),
+            Vec3::new(0.5, 0.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        ];
+        #[rustfmt::skip]
+        let indices = vec![
+            0, 1, 2, 4,
+            0, 2, 1, 5,
+            3, 2, 1, 4,
+            3, 1, 2, 5,
+        ];
+
+        SimplicialMesh::new(vertices, indices)
+    }
+
     /// Lower-dimensional simplices are generated correctly
     /// for a simple 2d mesh.
+    ///
+    /// Note: this may break spuriously if the order simplices are generated in is changed.
+    /// If this happens, instead of manually fixing the order tested here,
+    /// modify this test to check the presence of simplices (and absence of unintended ones)
+    /// independently of order.
     #[test]
     fn simple_2d_simplices_are_correct() {
-        let mesh = simple_mesh_2d();
+        let mesh = tiny_mesh_2d();
         #[rustfmt::skip]
         let expected_1_simplices = vec![
             2, 3,   0, 3,   0, 2,
@@ -141,6 +177,33 @@ mod tests {
             3, 5,   2, 5,
             5, 6,   3, 6,
             4, 6,
+        ];
+        assert_eq!(expected_1_simplices, mesh.simplices[0].indices);
+    }
+
+    /// Lower-dimensional simplices are generated correctly
+    /// for a simple 3d mesh.
+    ///
+    /// Same note applies as the above test.
+    #[test]
+    fn simple_3d_simplices_are_correct() {
+        let mesh = tiny_mesh_3d();
+
+        #[rustfmt::skip]
+        let expected_2_simplices = vec![
+            1, 2, 4,  0, 2, 4,  0, 1, 4,  0, 1, 2,
+            1, 2, 5,  0, 1, 5,  0, 2, 5,
+            1, 3, 4,  2, 3, 4,  1, 2, 3,
+            2, 3, 5,  1, 3, 5,
+        ];
+        assert_eq!(expected_2_simplices, mesh.simplices[1].indices);
+
+        #[rustfmt::skip]
+        let expected_1_simplices = vec![
+            2,4, 1,4, 1,2, 0,4, 0,2, 0,1,
+            2,5, 1,5, 0,5,
+            3,4, 1,3, 2,3,
+            3,5,
         ];
         assert_eq!(expected_1_simplices, mesh.simplices[0].indices);
     }
