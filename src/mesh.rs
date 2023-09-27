@@ -11,12 +11,97 @@ pub struct SimplicialMesh<const DIM: usize> {
     simplices: [SimplexCollection; DIM],
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct SimplexCollection {
     /// points per simplex in the storage Vec
     simplex_size: usize,
     /// indices stored in a flat Vec to avoid generics for dimension
     indices: Vec<usize>,
+    /// boundary simplices on the next level down
+    boundaries: Vec<BoundarySimplex>,
+}
+
+impl SimplexCollection {
+    /// Get the number of simplices in the collection.
+    #[inline]
+    fn len(&self) -> usize {
+        self.indices.len() / self.simplex_size
+    }
+
+    fn iter(&self) -> SimplexIter<'_> {
+        SimplexIter {
+            index_iter: self.indices.chunks_exact(self.simplex_size),
+            boundary_iter: self.boundaries.chunks_exact(self.simplex_size),
+        }
+    }
+
+    fn iter_mut(&mut self) -> SimplexIterMut<'_> {
+        SimplexIterMut {
+            index_iter: self.indices.chunks_exact_mut(self.simplex_size),
+            boundary_iter: self.boundaries.chunks_exact_mut(self.simplex_size),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct BoundarySimplex {
+    /// index of the simplex in the storage
+    index: usize,
+    /// orientation of the simplex relative to the simplex it bounds
+    orientation: Orientation,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Orientation {
+    #[default]
+    Forward = 1,
+    Backward = -1,
+}
+
+pub struct SimplexView<'a> {
+    indices: &'a [usize],
+    boundaries: &'a [BoundarySimplex],
+}
+
+pub struct SimplexViewMut<'a> {
+    indices: &'a mut [usize],
+    boundaries: &'a mut [BoundarySimplex],
+}
+
+pub struct SimplexIter<'a> {
+    index_iter: std::slice::ChunksExact<'a, usize>,
+    boundary_iter: std::slice::ChunksExact<'a, BoundarySimplex>,
+}
+
+impl<'a> Iterator for SimplexIter<'a> {
+    type Item = SimplexView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let indices = self.index_iter.next()?;
+        let boundaries = self.boundary_iter.next()?;
+        Some(SimplexView {
+            indices,
+            boundaries,
+        })
+    }
+}
+
+struct SimplexIterMut<'a> {
+    index_iter: std::slice::ChunksExactMut<'a, usize>,
+    boundary_iter: std::slice::ChunksExactMut<'a, BoundarySimplex>,
+}
+
+impl<'a> Iterator for SimplexIterMut<'a> {
+    type Item = SimplexViewMut<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let indices = self.index_iter.next()?;
+        let boundaries = self.boundary_iter.next()?;
+        Some(SimplexViewMut {
+            indices,
+            boundaries,
+        })
+    }
 }
 
 impl<const DIM: usize> SimplicialMesh<DIM> {
@@ -32,7 +117,7 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
             // so the one at index 0 is the collection of 1-simplices,
             // which have 2 points each
             simplex_size: i + 2,
-            indices: Vec::new(),
+            ..Default::default()
         });
 
         // highest dimension simplices have the indices given as parameter
@@ -41,7 +126,25 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
         // rest of the levels are inferred from boundaries of the top-level simplices
         let mut level_iter = simplices.iter_mut().rev().peekable();
         while let Some(upper_simplices) = level_iter.next() {
+            // preallocate space for boundary elements
+            upper_simplices
+                .boundaries
+                .resize(upper_simplices.indices.len(), BoundarySimplex::default());
+
             let Some(lower_simplices) = level_iter.peek_mut() else {
+                // we're at the 1-simplex level, where boundary simplices are vertices.
+                // set boundary indices and break
+                for simplex in upper_simplices.iter_mut() {
+                    simplex.boundaries[0] = BoundarySimplex {
+                        index: simplex.indices[0],
+                        orientation: Orientation::Backward,
+                    };
+                    simplex.boundaries[1] = BoundarySimplex {
+                        index: simplex.indices[1],
+                        orientation: Orientation::Forward,
+                    };
+                }
+
                 break;
             };
 
@@ -50,32 +153,48 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
             // so that simplices can be unambiguously identified with their set of vertices
             let mut sorted_simplex: Vec<usize> = Vec::with_capacity(lower_simplices.simplex_size);
 
-            for upper_simplex in upper_simplices
-                .indices
-                .chunks_exact(upper_simplices.simplex_size)
-            {
+            for upper_simplex in upper_simplices.iter_mut() {
                 // every unique combination of vertices in the upper simplex
                 // is a simplex on its boundary
-                for exclude_idx in upper_simplex {
+                for exclude_idx in 0..upper_simplex.indices.len() {
                     sorted_simplex.clear();
-                    sorted_simplex.extend(upper_simplex.iter().filter(|i| *i != exclude_idx));
+                    for (i, vert_id) in upper_simplex.indices.iter().enumerate() {
+                        if i != exclude_idx {
+                            sorted_simplex.push(*vert_id);
+                        }
+                        // TODO: sort here manually so that we can deduce orientation
+                    }
                     sorted_simplex.sort_unstable();
 
                     // linear search through already added simplices to deduplicate.
                     // this isn't the most efficient for large meshes,
                     // but we'll optimize later if it becomes a problem
-                    if lower_simplices
+                    let already_existing_lower = lower_simplices
+                        // lower_simplices.iter() doesn't work yet
+                        // because the boundary elements aren't allocated until next loop;
+                        // manually construct iterator over indices instead
                         .indices
                         .chunks_exact(lower_simplices.simplex_size)
-                        .any(|s| s == sorted_simplex)
-                    {
-                        continue;
+                        .enumerate()
+                        .find(|(_, s)| *s == sorted_simplex);
+
+                    if let Some((found_idx, _)) = already_existing_lower {
+                        upper_simplex.boundaries[exclude_idx] = BoundarySimplex {
+                            index: found_idx,
+                            // TODO: deduce orientation from swaps made while sorting
+                            // (NOTE: this requires top level simplices to be sorted as well,
+                            // which we're currently not checking!)
+                            orientation: Orientation::Forward,
+                        };
+                    } else {
+                        let new_idx = lower_simplices.len();
+                        lower_simplices.indices.extend_from_slice(&sorted_simplex);
+                        upper_simplex.boundaries[exclude_idx] = BoundarySimplex {
+                            index: new_idx,
+                            // TODO: see above comment
+                            orientation: Orientation::Forward,
+                        };
                     }
-
-                    lower_simplices.indices.extend_from_slice(&sorted_simplex);
-
-                    // TODO: orientation
-                    // TODO: store boundary information
                 }
             }
         }
@@ -159,26 +278,58 @@ mod tests {
         SimplicialMesh::new(vertices, indices)
     }
 
-    /// Lower-dimensional simplices are generated correctly
-    /// for a simple 2d mesh.
+    /// Lower-dimensional simplices and boundaries
+    /// are generated correctly for a simple 2d mesh.
     ///
     /// Note: this may break spuriously if the order simplices are generated in is changed.
     /// If this happens, instead of manually fixing the order tested here,
-    /// modify this test to check the presence of simplices (and absence of unintended ones)
-    /// independently of order.
+    /// it may be better to modify this test to check the presence of simplices
+    /// (and absence of unintended ones) independently of order.
+    /// Boundaries become tricky if you do that,
+    /// but should be doable by e.g. testing against vertex positions instead of indices.
     #[test]
-    fn simple_2d_simplices_are_correct() {
+    fn tiny_2d_mesh_is_correct() {
         let mesh = tiny_mesh_2d();
+
+        // sub-simplices
+
         #[rustfmt::skip]
         let expected_1_simplices = vec![
-            2, 3,   0, 3,   0, 2,
-            1, 3,   0, 1,
-            3, 4,   1, 4,
-            3, 5,   2, 5,
-            5, 6,   3, 6,
-            4, 6,
+            2,3, 0,3, 0,2,
+            1,3, 0,1,
+            3,4, 1,4,
+            3,5, 2,5,
+            5,6, 3,6,
+            4,6,
         ];
-        assert_eq!(expected_1_simplices, mesh.simplices[0].indices);
+        assert_eq!(
+            expected_1_simplices, mesh.simplices[0].indices,
+            "incorrect 1-simplices"
+        );
+
+        // boundaries
+        // TODO: orientations are not implemented yet, flip these accordingly
+
+        // orientations as integers for brevity
+        #[rustfmt::skip]
+        let expected_2_boundaries = vec![
+            (0, 1), (1, 1), (2, 1),
+            (3, 1), (4, 1), (1, 1),
+            (5, 1), (6, 1), (3, 1),
+            (7, 1), (0, 1), (8, 1),
+            (9, 1), (10, 1), (7, 1),
+            (11, 1), (5, 1), (10, 1),
+        ];
+        let actual_2_boundaries: Vec<(usize, isize)> = mesh.simplices[1]
+            .boundaries
+            .iter()
+            .map(|b| (b.index, b.orientation as isize))
+            .collect();
+
+        assert_eq!(
+            expected_2_boundaries, actual_2_boundaries,
+            "incorrect 2-simplex boundaries"
+        );
     }
 
     /// Lower-dimensional simplices are generated correctly
@@ -189,14 +340,19 @@ mod tests {
     fn simple_3d_simplices_are_correct() {
         let mesh = tiny_mesh_3d();
 
+        // sub-simplices
+
         #[rustfmt::skip]
         let expected_2_simplices = vec![
-            1, 2, 4,  0, 2, 4,  0, 1, 4,  0, 1, 2,
-            1, 2, 5,  0, 1, 5,  0, 2, 5,
-            1, 3, 4,  2, 3, 4,  1, 2, 3,
-            2, 3, 5,  1, 3, 5,
+            1,2,4, 0,2,4, 0,1,4, 0,1,2,
+            1,2,5, 0,1,5, 0,2,5,
+            1,3,4, 2,3,4, 1,2,3,
+            2,3,5, 1,3,5,
         ];
-        assert_eq!(expected_2_simplices, mesh.simplices[1].indices);
+        assert_eq!(
+            expected_2_simplices, mesh.simplices[1].indices,
+            "incorrect 1-simplices"
+        );
 
         #[rustfmt::skip]
         let expected_1_simplices = vec![
@@ -205,6 +361,35 @@ mod tests {
             3,4, 1,3, 2,3,
             3,5,
         ];
-        assert_eq!(expected_1_simplices, mesh.simplices[0].indices);
+        assert_eq!(
+            expected_1_simplices, mesh.simplices[0].indices,
+            "incorrect 2-simplices"
+        );
+
+        // boundaries
+
+        #[rustfmt::skip]
+        let expected_3_boundaries = vec![
+            (0, 1), (1, 1), (2, 1), (3, 1),
+            (4, 1), (5, 1), (6, 1), (3, 1),
+            (0, 1), (7, 1), (8, 1), (9, 1),
+            (4, 1), (10, 1), (11, 1), (9, 1),
+        ];
+        let actual_3_boundaries: Vec<(usize, isize)> = mesh.simplices[2]
+            .boundaries
+            .iter()
+            .map(|b| (b.index, b.orientation as isize))
+            .collect();
+
+        assert_eq!(
+            expected_3_boundaries, actual_3_boundaries,
+            "incorrect 3-simplex boundaries"
+        );
+
+        // there are so many 2-simplex boundaries on this one
+        // I can't be bothered to write them all out,
+        // I'll trust the 2D test that these are correct for now.
+        // should probably try to architect this test in a way
+        // that doesn't explicitly list all indices
     }
 }
