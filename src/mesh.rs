@@ -122,6 +122,15 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
 
         // highest dimension simplices have the indices given as parameter
         simplices[DIM - 1].indices = indices;
+        // by convention, sort simplices to have their indices in ascending order.
+        // this simplifies things by enabling a consistent way
+        // to identify a simplex with its vertices
+        for simplex in simplices[DIM - 1]
+            .indices
+            .chunks_exact_mut(simplices[DIM - 1].simplex_size)
+        {
+            simplex.sort_unstable();
+        }
 
         // rest of the levels are inferred from boundaries of the top-level simplices
         let mut level_iter = simplices.iter_mut().rev().peekable();
@@ -148,23 +157,31 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
                 break;
             };
 
-            // buffer to sort the simplex currently being processed.
-            // indices for each simplex are sorted in increasing order
-            // so that simplices can be unambiguously identified with their set of vertices
-            let mut sorted_simplex: Vec<usize> = Vec::with_capacity(lower_simplices.simplex_size);
+            // buffer to hold the simplex currently being processed.
+            // we don't push directly into lower_simplices.indices
+            // in order to check if a simplex already exists
+            let mut curr_simplex: Vec<usize> = Vec::with_capacity(lower_simplices.simplex_size);
 
             for upper_simplex in upper_simplices.iter_mut() {
                 // every unique combination of vertices in the upper simplex
                 // is a simplex on its boundary
                 for exclude_idx in 0..upper_simplex.indices.len() {
-                    sorted_simplex.clear();
+                    curr_simplex.clear();
                     for (i, vert_id) in upper_simplex.indices.iter().enumerate() {
                         if i != exclude_idx {
-                            sorted_simplex.push(*vert_id);
+                            curr_simplex.push(*vert_id);
                         }
-                        // TODO: sort here manually so that we can deduce orientation
                     }
-                    sorted_simplex.sort_unstable();
+
+                    // boundary orientations alternate between forward and backward
+                    // when defined in this order.
+                    // see Discrete Differential Forms for Computational Modeling by Desbrun et al. (2006)
+                    // https://dl.acm.org/doi/pdf/10.1145/1185657.1185665
+                    let orientation = if exclude_idx % 2 == 0 {
+                        Orientation::Forward
+                    } else {
+                        Orientation::Backward
+                    };
 
                     // linear search through already added simplices to deduplicate.
                     // this isn't the most efficient for large meshes,
@@ -176,23 +193,19 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
                         .indices
                         .chunks_exact(lower_simplices.simplex_size)
                         .enumerate()
-                        .find(|(_, s)| *s == sorted_simplex);
+                        .find(|(_, s)| *s == curr_simplex);
 
                     if let Some((found_idx, _)) = already_existing_lower {
                         upper_simplex.boundaries[exclude_idx] = BoundarySimplex {
                             index: found_idx,
-                            // TODO: deduce orientation from swaps made while sorting
-                            // (NOTE: this requires top level simplices to be sorted as well,
-                            // which we're currently not checking!)
-                            orientation: Orientation::Forward,
+                            orientation,
                         };
                     } else {
                         let new_idx = lower_simplices.len();
-                        lower_simplices.indices.extend_from_slice(&sorted_simplex);
+                        lower_simplices.indices.extend_from_slice(&curr_simplex);
                         upper_simplex.boundaries[exclude_idx] = BoundarySimplex {
                             index: new_idx,
-                            // TODO: see above comment
-                            orientation: Orientation::Forward,
+                            orientation,
                         };
                     }
                 }
@@ -239,11 +252,11 @@ mod tests {
         #[rustfmt::skip]
         let indices = vec![
             0, 2, 3,
-            0, 3, 1,
+            0, 1, 3,
             1, 3, 4,
-            2, 5, 3,
+            2, 3, 5,
             3, 5, 6,
-            3, 6, 4,
+            3, 4, 6,
         ];
         SimplicialMesh::new(vertices, indices)
     }
@@ -270,9 +283,9 @@ mod tests {
         #[rustfmt::skip]
         let indices = vec![
             0, 1, 2, 4,
-            0, 2, 1, 5,
-            3, 2, 1, 4,
-            3, 1, 2, 5,
+            0, 1, 2, 5,
+            1, 2, 3, 4,
+            1, 2, 3, 5,
         ];
 
         SimplicialMesh::new(vertices, indices)
@@ -308,17 +321,16 @@ mod tests {
         );
 
         // boundaries
-        // TODO: orientations are not implemented yet, flip these accordingly
 
         // orientations as integers for brevity
         #[rustfmt::skip]
         let expected_2_boundaries = vec![
-            (0, 1), (1, 1), (2, 1),
-            (3, 1), (4, 1), (1, 1),
-            (5, 1), (6, 1), (3, 1),
-            (7, 1), (0, 1), (8, 1),
-            (9, 1), (10, 1), (7, 1),
-            (11, 1), (5, 1), (10, 1),
+            (0, 1), (1, -1), (2, 1),
+            (3, 1), (1, -1), (4, 1),
+            (5, 1), (6, -1), (3, 1),
+            (7, 1), (8, -1), (0, 1),
+            (9, 1), (10, -1), (7, 1),
+            (11, 1), (10, -1), (5, 1),
         ];
         let actual_2_boundaries: Vec<(usize, isize)> = mesh.simplices[1]
             .boundaries
@@ -345,8 +357,8 @@ mod tests {
         #[rustfmt::skip]
         let expected_2_simplices = vec![
             1,2,4, 0,2,4, 0,1,4, 0,1,2,
-            1,2,5, 0,1,5, 0,2,5,
-            1,3,4, 2,3,4, 1,2,3,
+            1,2,5, 0,2,5, 0,1,5,
+            2,3,4, 1,3,4, 1,2,3,
             2,3,5, 1,3,5,
         ];
         assert_eq!(
@@ -358,7 +370,7 @@ mod tests {
         let expected_1_simplices = vec![
             2,4, 1,4, 1,2, 0,4, 0,2, 0,1,
             2,5, 1,5, 0,5,
-            3,4, 1,3, 2,3,
+            3,4, 2,3, 1,3,
             3,5,
         ];
         assert_eq!(
@@ -370,10 +382,10 @@ mod tests {
 
         #[rustfmt::skip]
         let expected_3_boundaries = vec![
-            (0, 1), (1, 1), (2, 1), (3, 1),
-            (4, 1), (5, 1), (6, 1), (3, 1),
-            (0, 1), (7, 1), (8, 1), (9, 1),
-            (4, 1), (10, 1), (11, 1), (9, 1),
+            (0, 1), (1, -1), (2, 1), (3, -1),
+            (4, 1), (5, -1), (6, 1), (3, -1),
+            (7, 1), (8, -1), (0, 1), (9, -1),
+            (10, 1), (11, -1), (4, 1), (9, -1),
         ];
         let actual_3_boundaries: Vec<(usize, isize)> = mesh.simplices[2]
             .boundaries
