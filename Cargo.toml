@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 nalgebra = "0.32.3"
+nalgebra-sparse = "0.9.0"
+typenum = { version = "1.17.0", features = [ "const-generics" ] }

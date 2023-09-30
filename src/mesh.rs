@@ -1,4 +1,7 @@
+//! Tools for creating and working with DEC-compatible meshes.
+
 use nalgebra as na;
+use typenum as tn;
 
 /// A mesh composed of only simplices
 /// (points, line segments, triangles, tetrahedra etc).
@@ -216,6 +219,19 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
             vertices,
             simplices,
         }
+    }
+
+    pub fn new_zero_cochain_primal<Dimension: tn::Unsigned>(
+        &self,
+    ) -> crate::Cochain<Dimension, crate::cochain::Primal> {
+        let dim = Dimension::to_usize();
+        let simplex_count = if dim == 0 {
+            self.vertices.len()
+        } else {
+            self.simplices[dim - 1].len()
+        };
+
+        crate::Cochain::zeros(simplex_count)
     }
 }
 
