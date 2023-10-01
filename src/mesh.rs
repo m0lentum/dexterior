@@ -1,6 +1,7 @@
 //! Tools for creating and working with DEC-compatible meshes.
 
 use nalgebra as na;
+use nalgebra_sparse as nas;
 use typenum as tn;
 
 /// A mesh composed of only simplices
@@ -59,52 +60,6 @@ enum Orientation {
     #[default]
     Forward = 1,
     Backward = -1,
-}
-
-pub struct SimplexView<'a> {
-    indices: &'a [usize],
-    boundaries: &'a [BoundarySimplex],
-}
-
-pub struct SimplexViewMut<'a> {
-    indices: &'a mut [usize],
-    boundaries: &'a mut [BoundarySimplex],
-}
-
-pub struct SimplexIter<'a> {
-    index_iter: std::slice::ChunksExact<'a, usize>,
-    boundary_iter: std::slice::ChunksExact<'a, BoundarySimplex>,
-}
-
-impl<'a> Iterator for SimplexIter<'a> {
-    type Item = SimplexView<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let indices = self.index_iter.next()?;
-        let boundaries = self.boundary_iter.next()?;
-        Some(SimplexView {
-            indices,
-            boundaries,
-        })
-    }
-}
-
-struct SimplexIterMut<'a> {
-    index_iter: std::slice::ChunksExactMut<'a, usize>,
-    boundary_iter: std::slice::ChunksExactMut<'a, BoundarySimplex>,
-}
-
-impl<'a> Iterator for SimplexIterMut<'a> {
-    type Item = SimplexViewMut<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let indices = self.index_iter.next()?;
-        let boundaries = self.boundary_iter.next()?;
-        Some(SimplexViewMut {
-            indices,
-            boundaries,
-        })
-    }
 }
 
 impl<const DIM: usize> SimplicialMesh<DIM> {
@@ -212,6 +167,13 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
                         };
                     }
                 }
+
+                // sort the simplex boundaries by index.
+                // this lets us build exterior derivative matrices more efficiently,
+                // as the structure directly corresponds to a CSR matrix
+                // (TODO: should we already build the CSR matrix here
+                // and not have this current structure at all?)
+                upper_simplex.boundaries.sort_unstable_by_key(|b| b.index);
             }
         }
 
@@ -221,17 +183,168 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
         }
     }
 
-    pub fn new_zero_cochain_primal<Dimension: tn::Unsigned>(
-        &self,
-    ) -> crate::Cochain<Dimension, crate::cochain::Primal> {
-        let dim = Dimension::to_usize();
-        let simplex_count = if dim == 0 {
+    /// Get the number of `Dimension`-simplices in the complex.
+    #[inline]
+    pub fn simplex_count<Dimension: tn::Unsigned>(&self) -> usize {
+        self.simplex_count_dyn(Dimension::to_usize())
+    }
+
+    /// Simplex count taking the dimension as a runtime parameter
+    /// to allow usage in dynamic contexts (internal APIs)
+    #[inline]
+    fn simplex_count_dyn(&self, dim: usize) -> usize {
+        // TODO: consider a more unified structure
+        // where vertices also have a SimplexCollection
+        // to simplify addressing and remove a likely source of off-by-one errors
+        if dim == 0 {
             self.vertices.len()
         } else {
             self.simplices[dim - 1].len()
-        };
+        }
+    }
 
-        crate::Cochain::zeros(simplex_count)
+    /// Create a new cochain with a value of zero
+    /// for each `Dimension`-simplex in the mesh.
+    pub fn new_zero_cochain_primal<Dimension: tn::Unsigned>(
+        &self,
+    ) -> crate::Cochain<Dimension, Primal> {
+        // TODO: if we used `typenum` instead of const generics for the mesh dimension,
+        // this check could be moved to compile time
+        assert!(
+            Dimension::to_usize() < DIM,
+            "Cannot create a cochain of higher dimension than the mesh"
+        );
+
+        crate::Cochain::zeros(self.simplex_count::<Dimension>())
+    }
+
+    pub fn d<Dimension: tn::Unsigned, Primality: MeshPrimality>(
+        &self,
+    ) -> crate::ExteriorDerivative<Dimension, Primality> {
+        let dim = Primality::d_input_primal_dim(Dimension::to_usize(), DIM);
+        let mat = Primality::convert_d_from_primal(self.build_coboundary_matrix(dim));
+        crate::ExteriorDerivative::new(mat)
+    }
+
+    /// Constructs a coboundary matrix taking primal `dim`-cochains
+    /// to primal `dim+1`-cochains.
+    /// Internal API used by `Self::d`.
+    fn build_coboundary_matrix(&self, input_dim: usize) -> nas::CsrMatrix<f64> {
+        // no dimension check here, that is done in `d`
+
+        // simplices of the output dimension
+        let simplices = &self.simplices[input_dim];
+
+        let row_count = simplices.len();
+        let col_count = self.simplex_count_dyn(input_dim);
+
+        // each row has the same number of nonzero elements,
+        // so it's simple to construct the sparsity pattern of the matrix
+        let row_offsets: Vec<usize> = (0..=row_count)
+            .map(|i| i * simplices.simplex_size)
+            .collect();
+        let (col_indices, values): (Vec<usize>, Vec<f64>) = simplices
+            .boundaries
+            .iter()
+            .map(|b| (b.index, b.orientation as isize as f64))
+            .unzip();
+
+        nas::CsrMatrix::try_from_csr_data(row_count, col_count, row_offsets, col_indices, values)
+            .expect("Error in matrix construction. This is a bug in dexterior")
+    }
+}
+
+//
+// mesh primality generics
+//
+
+/// Marker type indicating a [`Cochain`][crate::Cochain]
+/// or [`operator`][crate::operator] corresponds to a primal mesh.
+#[derive(Clone, Copy, Debug)]
+pub struct Primal;
+/// Marker type indicating a [`Cochain`][crate::Cochain]
+/// or [`operator`][crate::operator] corresponds to a dual mesh.
+#[derive(Clone, Copy, Debug)]
+pub struct Dual;
+
+/// Trait allowing types and mesh methods to be generic
+/// on whether they operate on the primal or dual mesh.
+/// Not intended to be implemented by users.
+pub trait MeshPrimality {
+    type Opposite: MeshPrimality;
+    /// Dimension to fetch data from when generating the exterior derivative.
+    fn d_input_primal_dim(dim: usize, mesh_dim: usize) -> usize;
+    /// Conversion procedure for exterior derivative constructed for the primal mesh.
+    /// The exterior derivative on the dual mesh is the transpose
+    /// of the one on the primal mesh
+    fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64>;
+}
+impl MeshPrimality for Primal {
+    type Opposite = Dual;
+    fn d_input_primal_dim(dim: usize, _mesh_dim: usize) -> usize {
+        dim
+    }
+    fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64> {
+        primal_d
+    }
+}
+impl MeshPrimality for Dual {
+    type Opposite = Primal;
+    fn d_input_primal_dim(dim: usize, mesh_dim: usize) -> usize {
+        mesh_dim - dim - 1
+    }
+    fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64> {
+        primal_d.transpose()
+    }
+}
+
+//
+// iterators and views
+//
+
+pub struct SimplexView<'a> {
+    indices: &'a [usize],
+    boundaries: &'a [BoundarySimplex],
+}
+
+pub struct SimplexViewMut<'a> {
+    indices: &'a mut [usize],
+    boundaries: &'a mut [BoundarySimplex],
+}
+
+pub struct SimplexIter<'a> {
+    index_iter: std::slice::ChunksExact<'a, usize>,
+    boundary_iter: std::slice::ChunksExact<'a, BoundarySimplex>,
+}
+
+impl<'a> Iterator for SimplexIter<'a> {
+    type Item = SimplexView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let indices = self.index_iter.next()?;
+        let boundaries = self.boundary_iter.next()?;
+        Some(SimplexView {
+            indices,
+            boundaries,
+        })
+    }
+}
+
+struct SimplexIterMut<'a> {
+    index_iter: std::slice::ChunksExactMut<'a, usize>,
+    boundary_iter: std::slice::ChunksExactMut<'a, BoundarySimplex>,
+}
+
+impl<'a> Iterator for SimplexIterMut<'a> {
+    type Item = SimplexViewMut<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let indices = self.index_iter.next()?;
+        let boundaries = self.boundary_iter.next()?;
+        Some(SimplexViewMut {
+            indices,
+            boundaries,
+        })
     }
 }
 
@@ -239,8 +352,11 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
 // tests
 //
 
+// Module is pub(crate) to expose the test meshes to other modules' tests.
+// Tests here are concerned with the mesh structure being constructed correctly.
+// For tests on exterior derivative and Hodge star, see `operator.rs`
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     type Vec2 = na::SVector<f64, 2>;
@@ -255,7 +371,7 @@ mod tests {
     ///   \/__\/
     ///
     /// with vertices and triangles ordered left to right, top to bottom.
-    fn tiny_mesh_2d() -> SimplicialMesh<2> {
+    pub(crate) fn tiny_mesh_2d() -> SimplicialMesh<2> {
         let vertices = vec![
             Vec2::new(-0.5, 1.0),
             Vec2::new(0.5, 1.0),
@@ -287,7 +403,7 @@ mod tests {
     ///    \/
     ///
     /// and with a single point both up and down the z-axis.
-    fn tiny_mesh_3d() -> SimplicialMesh<3> {
+    pub(crate) fn tiny_mesh_3d() -> SimplicialMesh<3> {
         let vertices = vec![
             Vec3::new(0.0, 1.0, 0.0),
             Vec3::new(-0.5, 0.0, 0.0),
@@ -342,11 +458,11 @@ mod tests {
         #[rustfmt::skip]
         let expected_2_boundaries = vec![
             (0, 1), (1, -1), (2, 1),
-            (3, 1), (1, -1), (4, 1),
-            (5, 1), (6, -1), (3, 1),
-            (7, 1), (8, -1), (0, 1),
-            (9, 1), (10, -1), (7, 1),
-            (11, 1), (10, -1), (5, 1),
+            (1, -1), (3, 1), (4, 1),
+            (3, 1), (5, 1), (6, -1),
+            (0, 1), (7, 1), (8, -1),
+            (7, 1), (9, 1), (10, -1),
+            (5, 1), (10, -1), (11, 1),
         ];
         let actual_2_boundaries: Vec<(usize, isize)> = mesh.simplices[1]
             .boundaries
@@ -399,9 +515,9 @@ mod tests {
         #[rustfmt::skip]
         let expected_3_boundaries = vec![
             (0, 1), (1, -1), (2, 1), (3, -1),
-            (4, 1), (5, -1), (6, 1), (3, -1),
-            (7, 1), (8, -1), (0, 1), (9, -1),
-            (10, 1), (11, -1), (4, 1), (9, -1),
+            (3, -1), (4, 1), (5, -1), (6, 1),
+            (0, 1), (7, 1), (8, -1), (9, -1),
+            (4, 1), (9, -1), (10, 1), (11, -1),
         ];
         let actual_3_boundaries: Vec<(usize, isize)> = mesh.simplices[2]
             .boundaries

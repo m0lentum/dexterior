@@ -5,3 +5,4 @@ pub mod cochain;
 pub use cochain::Cochain;
 
 pub mod operator;
+pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar};

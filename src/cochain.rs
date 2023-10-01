@@ -3,25 +3,6 @@
 use nalgebra as na;
 use typenum as tn;
 
-/// Marker type indicating a [`Cochain`][self::Cochain]
-/// corresponds to a primal mesh.
-#[derive(Clone, Copy, Debug)]
-pub struct Primal;
-/// Marker type indicating a [`Cochain`][self::Cochain]
-/// corresponds to a dual mesh.
-#[derive(Clone, Copy, Debug)]
-pub struct Dual;
-
-pub trait MeshPrimality {
-    type Opposite: MeshPrimality;
-}
-impl MeshPrimality for Primal {
-    type Opposite = Dual;
-}
-impl MeshPrimality for Dual {
-    type Opposite = Primal;
-}
-
 /// A vector of values corresponding to
 /// a set of `Dimension`-dimensional cells on a mesh.
 ///
@@ -42,6 +23,19 @@ impl<Dimension, Primality> Cochain<Dimension, Primality> {
     pub(crate) fn zeros(len: usize) -> Self {
         Self {
             values: na::DVector::zeros(len),
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<Dimension, Primality> crate::operator::OperatorInput for Cochain<Dimension, Primality> {
+    fn values(&self) -> &na::DVector<f64> {
+        &self.values
+    }
+
+    fn from_values(values: na::DVector<f64>) -> Self {
+        Self {
+            values,
             _marker: std::marker::PhantomData,
         }
     }
