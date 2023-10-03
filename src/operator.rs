@@ -57,11 +57,16 @@ impl<Dimension, Primality> ExteriorDerivative<Dimension, Primality> {
     }
 }
 
+impl<D, P> PartialEq for ExteriorDerivative<D, P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.mat == other.mat
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct HodgeStar<Dimension, Primality> {
-    // a diagonal vector is a more efficient form of storage than a CSR matrix,
-    // but will make it more difficult to compose operators.
-    // may need to put a CSR matrix here once the practicalities of this API are worked out
+    // a diagonal vector is a more efficient form of storage than a CSR matrix.
+    // this is converted to a matrix upon composition with other operators
     diagonal: na::DVector<f64>,
     _marker: std::marker::PhantomData<(Dimension, Primality)>,
 }
@@ -71,6 +76,7 @@ where
     Primality: MeshPrimality,
 {
     type Input = Cochain<Dimension, Primality>;
+    // TODO: this is supposed to be the dimension k-n! How the heck do we do that?
     type Output = Cochain<Dimension, Primality::Opposite>;
 
     fn apply(&self, input: &Self::Input) -> Self::Output {
@@ -96,9 +102,22 @@ where
     }
 }
 
-// proof of concept that composition like this can be expressed and compiles.
-// ultimately this should not just hold the composed operators
-// but combine them into a single matrix
+impl<Dimension, Primality> HodgeStar<Dimension, Primality> {
+    /// Constructor exposed to crate only, used in `SimplicialMesh::star`.
+    pub(crate) fn new(diagonal: na::DVector<f64>) -> Self {
+        Self {
+            diagonal,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<D, P> PartialEq for HodgeStar<D, P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.diagonal == other.diagonal
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ComposedOperator<Left, Right> {
     mat: nas::CsrMatrix<f64>,
@@ -122,10 +141,121 @@ where
     }
 }
 
+impl<L, R> PartialEq for ComposedOperator<L, R> {
+    fn eq(&self, other: &Self) -> bool {
+        self.mat == other.mat
+    }
+}
+
+/// Compose two operators such that `r` is applied before `l`.
+///
+/// This can also be done with multiplication syntax:
+/// ```
+/// # use dexterior::{Primal, operator::compose, mesh::tiny_mesh_2d};
+/// # use typenum::{U1, U2};
+/// # let mesh = tiny_mesh_2d();
+/// assert_eq!(
+///     compose(mesh.star::<U2, Primal>(), mesh.d::<U1, Primal>()),
+///     mesh.star::<U2, Primal>() * mesh.d::<U1, Primal>(),
+/// );
+/// ```
+pub fn compose<Left, Right>(l: Left, r: Right) -> ComposedOperator<Left, Right>
+where
+    Left: Operator<Input = Right::Output>,
+    Right: Operator,
+{
+    ComposedOperator {
+        mat: l.into_csr() * r.into_csr(),
+        _marker: std::marker::PhantomData,
+    }
+}
+
+// Mul implementations for composition and application to cochains.
+// These need to be implemented for each type separately due to the orphan rule
+
+// compositions
+
+impl<D, P, Op> std::ops::Mul<Op> for ExteriorDerivative<D, P>
+where
+    D: std::ops::Add<tn::B1>,
+    Op: Operator<Output = <Self as Operator>::Input>,
+{
+    type Output = ComposedOperator<Self, Op>;
+
+    fn mul(self, rhs: Op) -> Self::Output {
+        compose(self, rhs)
+    }
+}
+
+impl<D, P, Op> std::ops::Mul<Op> for HodgeStar<D, P>
+where
+    P: MeshPrimality,
+    Op: Operator<Output = <Self as Operator>::Input>,
+{
+    type Output = ComposedOperator<Self, Op>;
+
+    fn mul(self, rhs: Op) -> Self::Output {
+        compose(self, rhs)
+    }
+}
+
+impl<L, R, Op> std::ops::Mul<Op> for ComposedOperator<L, R>
+where
+    L: Operator<Input = R::Output>,
+    R: Operator,
+    Op: Operator<Output = <Self as Operator>::Input>,
+{
+    type Output = ComposedOperator<Self, Op>;
+
+    fn mul(self, rhs: Op) -> Self::Output {
+        compose(self, rhs)
+    }
+}
+
+// cochains
+
+impl<D, P> std::ops::Mul<&Cochain<D, P>> for ExteriorDerivative<D, P>
+where
+    D: std::ops::Add<tn::B1>,
+{
+    type Output = <Self as Operator>::Output;
+
+    fn mul(self, rhs: &Cochain<D, P>) -> Self::Output {
+        self.apply(rhs)
+    }
+}
+
+impl<D, P> std::ops::Mul<&Cochain<D, P>> for HodgeStar<D, P>
+where
+    P: MeshPrimality,
+{
+    type Output = <Self as Operator>::Output;
+
+    fn mul(self, rhs: &Cochain<D, P>) -> Self::Output {
+        self.apply(rhs)
+    }
+}
+
+impl<L, R, D, P> std::ops::Mul<&Cochain<D, P>> for ComposedOperator<L, R>
+where
+    L: Operator<Input = R::Output>,
+    R: Operator<Input = Cochain<D, P>>,
+{
+    type Output = <Self as Operator>::Output;
+
+    fn mul(self, rhs: &R::Input) -> Self::Output {
+        self.apply(rhs)
+    }
+}
+
+//
+// tests
+//
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mesh::{tests::tiny_mesh_2d, Dual, Primal};
+    use crate::mesh::{tiny_mesh_2d, Dual, Primal};
 
     #[test]
     fn exterior_derivative_works_in_2d() {
@@ -157,7 +287,7 @@ mod tests {
         assert_eq!(c1.values, expected_c1, "d_0 gave unexpected results");
 
         // type inference! :D
-        let c2 = mesh.d().apply(&c1);
+        let c2 = mesh.d() * &c1;
         assert!(
             c2.values.iter().all(|v| *v == 0.0),
             "d twice should always be zero"
@@ -176,5 +306,18 @@ mod tests {
             mesh.d::<tn::U0, Primal>().mat.transpose(),
             "dual d_1 should be the transpose of primal d_0",
         );
+    }
+
+    /// Operators can be chained (and have their types inferred correctly).
+    /// This one is mostly about types and syntax,
+    /// so this compiling is a success in itself.
+    #[test]
+    fn operator_composition_works() {
+        let mesh = tiny_mesh_2d();
+        let c0 = mesh.new_zero_cochain_primal::<tn::U1>();
+
+        let big_op = mesh.star() * mesh.d() * mesh.star() * mesh.d() * mesh.star();
+
+        let big_res: Cochain<tn::U1, Dual> = big_op * &c0;
     }
 }

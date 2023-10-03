@@ -1,5 +1,5 @@
 pub mod mesh;
-pub use mesh::{SimplexIter, SimplexView, SimplexViewMut, SimplicialMesh};
+pub use mesh::{Dual, Primal, SimplexIter, SimplexView, SimplexViewMut, SimplicialMesh};
 
 pub mod cochain;
 pub use cochain::Cochain;

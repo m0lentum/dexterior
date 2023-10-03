@@ -218,12 +218,26 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
         crate::Cochain::zeros(self.simplex_count::<Dimension>())
     }
 
+    /// Exterior derivative. TODOC
     pub fn d<Dimension: tn::Unsigned, Primality: MeshPrimality>(
         &self,
     ) -> crate::ExteriorDerivative<Dimension, Primality> {
         let dim = Primality::d_input_primal_dim(Dimension::to_usize(), DIM);
         let mat = Primality::convert_d_from_primal(self.build_coboundary_matrix(dim));
         crate::ExteriorDerivative::new(mat)
+    }
+
+    /// Hodge star. Not implemented correctly yet, just here to test APIs and type composition.
+    pub fn star<Dimension: tn::Unsigned, Primality: MeshPrimality>(
+        &self,
+    ) -> crate::HodgeStar<Dimension, Primality> {
+        let dim = Primality::star_input_primal_dim(Dimension::to_usize(), DIM);
+        // TODO: replace this with the construction of an actual Hodge star
+        let diag = Primality::convert_star_from_primal(na::DVector::repeat(
+            self.simplex_count_dyn(dim),
+            2.0,
+        ));
+        crate::HodgeStar::new(diag)
     }
 
     /// Constructs a coboundary matrix taking primal `dim`-cochains
@@ -262,6 +276,7 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
 /// or [`operator`][crate::operator] corresponds to a primal mesh.
 #[derive(Clone, Copy, Debug)]
 pub struct Primal;
+
 /// Marker type indicating a [`Cochain`][crate::Cochain]
 /// or [`operator`][crate::operator] corresponds to a dual mesh.
 #[derive(Clone, Copy, Debug)]
@@ -272,13 +287,21 @@ pub struct Dual;
 /// Not intended to be implemented by users.
 pub trait MeshPrimality {
     type Opposite: MeshPrimality;
+
     /// Dimension to fetch data from when generating the exterior derivative.
     fn d_input_primal_dim(dim: usize, mesh_dim: usize) -> usize;
     /// Conversion procedure for exterior derivative constructed for the primal mesh.
     /// The exterior derivative on the dual mesh is the transpose
     /// of the one on the primal mesh
     fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64>;
+
+    /// Dimension to fetch data from when generating the Hodge star.
+    fn star_input_primal_dim(dim: usize, mesh_dim: usize) -> usize;
+    /// Conversion procedure for Hodge star constructed for the primal mesh.
+    /// The star on the dual mesh is the inverse of the one on the primal mesh
+    fn convert_star_from_primal(primal_diag: na::DVector<f64>) -> na::DVector<f64>;
 }
+
 impl MeshPrimality for Primal {
     type Opposite = Dual;
     fn d_input_primal_dim(dim: usize, _mesh_dim: usize) -> usize {
@@ -287,7 +310,14 @@ impl MeshPrimality for Primal {
     fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64> {
         primal_d
     }
+    fn star_input_primal_dim(dim: usize, _mesh_dim: usize) -> usize {
+        dim
+    }
+    fn convert_star_from_primal(primal_diag: na::DVector<f64>) -> na::DVector<f64> {
+        primal_diag
+    }
 }
+
 impl MeshPrimality for Dual {
     type Opposite = Primal;
     fn d_input_primal_dim(dim: usize, mesh_dim: usize) -> usize {
@@ -295,6 +325,15 @@ impl MeshPrimality for Dual {
     }
     fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64> {
         primal_d.transpose()
+    }
+    fn star_input_primal_dim(dim: usize, mesh_dim: usize) -> usize {
+        mesh_dim - dim
+    }
+    fn convert_star_from_primal(mut primal_diag: na::DVector<f64>) -> na::DVector<f64> {
+        for elem in primal_diag.iter_mut() {
+            *elem = 1.0 / *elem;
+        }
+        primal_diag
     }
 }
 
@@ -352,36 +391,34 @@ impl<'a> Iterator for SimplexIterMut<'a> {
 // tests
 //
 
-// Module is pub(crate) to expose the test meshes to other modules' tests.
-// Tests here are concerned with the mesh structure being constructed correctly.
-// For tests on exterior derivative and Hodge star, see `operator.rs`
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
+type Vec2 = na::SVector<f64, 2>;
+type Vec3 = na::SVector<f64, 3>;
 
-    type Vec2 = na::SVector<f64, 2>;
-    type Vec3 = na::SVector<f64, 3>;
-
-    /// A small hexagon-shaped 2D mesh for testing basic functionality.
-    /// Shaped somewhat like this:
-    ///    ____
-    ///   /\  /\
-    ///  /__\/__\
-    ///  \  /\  /
-    ///   \/__\/
-    ///
-    /// with vertices and triangles ordered left to right, top to bottom.
-    pub(crate) fn tiny_mesh_2d() -> SimplicialMesh<2> {
-        let vertices = vec![
-            Vec2::new(-0.5, 1.0),
-            Vec2::new(0.5, 1.0),
-            Vec2::new(-1.0, 0.0),
-            Vec2::new(0.0, 0.0),
-            Vec2::new(0.0, 1.0),
-            Vec2::new(-0.5, -1.0),
-            Vec2::new(0.5, -1.0),
-        ];
-        #[rustfmt::skip]
+/// A small hexagon-shaped 2D mesh for testing basic functionality.
+/// Shaped somewhat like this:
+///    ____
+///   /\  /\
+///  /__\/__\
+///  \  /\  /
+///   \/__\/
+///
+/// with vertices and triangles ordered left to right, top to bottom.
+///
+/// This is public for visibility in doctests, which frequently need an instance of a mesh.
+/// It is not meant to be used by users and thus hidden from docs.
+/// Eventually there should be a mesh generator API that can replace this.
+#[doc(hidden)]
+pub fn tiny_mesh_2d() -> SimplicialMesh<2> {
+    let vertices = vec![
+        Vec2::new(-0.5, 1.0),
+        Vec2::new(0.5, 1.0),
+        Vec2::new(-1.0, 0.0),
+        Vec2::new(0.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(-0.5, -1.0),
+        Vec2::new(0.5, -1.0),
+    ];
+    #[rustfmt::skip]
         let indices = vec![
             0, 2, 3,
             0, 1, 3,
@@ -390,29 +427,34 @@ pub(crate) mod tests {
             3, 5, 6,
             3, 4, 6,
         ];
-        SimplicialMesh::new(vertices, indices)
-    }
+    SimplicialMesh::new(vertices, indices)
+}
 
-    /// A small 3D mesh for testing basic functionality.
-    /// Four tetrahedra arranged into a diamond shape,
-    /// split like this down the x,y plane:
-    ///
-    ///    /\
-    ///   /__\
-    ///   \  /
-    ///    \/
-    ///
-    /// and with a single point both up and down the z-axis.
-    pub(crate) fn tiny_mesh_3d() -> SimplicialMesh<3> {
-        let vertices = vec![
-            Vec3::new(0.0, 1.0, 0.0),
-            Vec3::new(-0.5, 0.0, 0.0),
-            Vec3::new(0.5, 0.0, 0.0),
-            Vec3::new(0.0, -1.0, 0.0),
-            Vec3::new(0.0, 0.0, -1.0),
-            Vec3::new(0.0, 0.0, 1.0),
-        ];
-        #[rustfmt::skip]
+/// A small 3D mesh for testing basic functionality.
+/// Four tetrahedra arranged into a diamond shape,
+/// split like this down the x,y plane:
+///
+///    /\
+///   /__\
+///   \  /
+///    \/
+///
+/// and with a single point both up and down the z-axis.
+///
+/// This is public for visibility in doctests, which frequently need an instance of a mesh.
+/// It is not meant to be used by users and thus hidden from docs.
+/// Eventually there should be a mesh generator API that can replace this.
+#[doc(hidden)]
+pub fn tiny_mesh_3d() -> SimplicialMesh<3> {
+    let vertices = vec![
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(-0.5, 0.0, 0.0),
+        Vec3::new(0.5, 0.0, 0.0),
+        Vec3::new(0.0, -1.0, 0.0),
+        Vec3::new(0.0, 0.0, -1.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    ];
+    #[rustfmt::skip]
         let indices = vec![
             0, 1, 2, 4,
             0, 1, 2, 5,
@@ -420,8 +462,15 @@ pub(crate) mod tests {
             1, 2, 3, 5,
         ];
 
-        SimplicialMesh::new(vertices, indices)
-    }
+    SimplicialMesh::new(vertices, indices)
+}
+
+// Module is pub(crate) to expose the test meshes to other modules' tests.
+// Tests here are concerned with the mesh structure being constructed correctly.
+// For tests on exterior derivative and Hodge star, see `operator.rs`
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
 
     /// Lower-dimensional simplices and boundaries
     /// are generated correctly for a simple 2d mesh.
