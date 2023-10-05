@@ -2,7 +2,6 @@
 
 use nalgebra as na;
 use nalgebra_sparse as nas;
-use typenum as tn;
 
 /// A mesh composed of only simplices
 /// (points, line segments, triangles, tetrahedra etc).
@@ -12,7 +11,7 @@ pub struct SimplicialMesh<const DIM: usize> {
     vertices: Vec<na::SVector<f64, DIM>>,
     /// storage for each dimension of simplex in the mesh
     /// (except 0, as those are just the vertices)
-    simplices: [SimplexCollection; DIM],
+    simplices: Vec<SimplexCollection>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -62,30 +61,30 @@ enum Orientation {
     Backward = -1,
 }
 
-impl<const DIM: usize> SimplicialMesh<DIM> {
+impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// Construct a SimplicialMesh from raw vertices and indices.
     ///
     /// The indices are given as a flat array,
     /// where every `DIM + 1` indices correspond to one `DIM`-simplex.
-    pub fn new(vertices: Vec<na::SVector<f64, DIM>>, indices: Vec<usize>) -> Self {
-        assert!(DIM > 0, "Cannot create a mesh of dimension 0");
-
-        let mut simplices = std::array::from_fn(|i| SimplexCollection {
-            // 0-simplices are omitted from these collections,
-            // so the one at index 0 is the collection of 1-simplices,
-            // which have 2 points each
-            simplex_size: i + 2,
-            ..Default::default()
-        });
+    pub fn new(vertices: Vec<na::SVector<f64, MESH_DIM>>, indices: Vec<usize>) -> Self {
+        let mut simplices: Vec<SimplexCollection> = (0..MESH_DIM)
+            .map(|i| SimplexCollection {
+                // 0-simplices are omitted from these collections,
+                // so the one at index 0 is the collection of 1-simplices,
+                // which have 2 points each
+                simplex_size: i + 2,
+                ..Default::default()
+            })
+            .collect();
 
         // highest dimension simplices have the indices given as parameter
-        simplices[DIM - 1].indices = indices;
+        simplices[MESH_DIM - 1].indices = indices;
         // by convention, sort simplices to have their indices in ascending order.
         // this simplifies things by enabling a consistent way
         // to identify a simplex with its vertices
-        for simplex in simplices[DIM - 1]
+        for simplex in simplices[MESH_DIM - 1]
             .indices
-            .chunks_exact_mut(simplices[DIM - 1].simplex_size)
+            .chunks_exact_mut(MESH_DIM + 1)
         {
             simplex.sort_unstable();
         }
@@ -185,8 +184,11 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
 
     /// Get the number of `Dimension`-simplices in the complex.
     #[inline]
-    pub fn simplex_count<Dimension: tn::Unsigned>(&self) -> usize {
-        self.simplex_count_dyn(Dimension::to_usize())
+    pub fn simplex_count<const DIM: usize>(&self) -> usize
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        self.simplex_count_dyn(DIM)
     }
 
     /// Simplex count taking the dimension as a runtime parameter
@@ -205,46 +207,123 @@ impl<const DIM: usize> SimplicialMesh<DIM> {
 
     /// Create a new cochain with a value of zero
     /// for each `Dimension`-simplex in the mesh.
-    pub fn new_zero_cochain_primal<Dimension: tn::Unsigned>(
+    ///
+    /// ## Compile-time dimension checking
+    ///
+    /// A cochain cannot be constructed
+    /// for dimensions higher than the mesh dimension.
+    /// For instance, the following will compile:
+    /// ```
+    /// # use dexterior::{Primal, SimplicialMesh, mesh::tiny_mesh_2d as test_mesh};
+    /// let mesh: SimplicialMesh<2> = test_mesh();
+    /// let c = mesh.new_zero_cochain::<2, Primal>();
+    /// ```
+    /// but this won't:
+    /// ```compile_fail
+    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
+    /// # let mesh = tiny_mesh_2d();
+    /// let c = mesh.new_zero_cochain::<3, Prial>();
+    /// ```
+    /// Unfortunately, the error messages this produces are a little obtuse.
+    /// If you see compiler errors like
+    /// ```text
+    /// cannot subtract `typenum::bit::B1` from `typenum::uint:: ...
+    /// ```
+    /// this is what's happening.
+    pub fn new_zero_cochain<const DIM: usize, Primality>(
         &self,
-    ) -> crate::Cochain<Dimension, Primal> {
-        // TODO: if we used `typenum` instead of const generics for the mesh dimension,
-        // this check could be moved to compile time
-        assert!(
-            Dimension::to_usize() < DIM,
-            "Cannot create a cochain of higher dimension than the mesh"
-        );
-
-        crate::Cochain::zeros(self.simplex_count::<Dimension>())
+    ) -> crate::Cochain<na::Const<DIM>, Primality>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        Primality: MeshPrimality,
+    {
+        // GAT magic to compute the corresponding primal dimension at compile time
+        let primal_dim =
+            <Primality::PrimalDim<na::Const<DIM>, na::Const<MESH_DIM>> as na::DimName>::USIZE;
+        crate::Cochain::zeros(self.simplex_count_dyn(primal_dim))
     }
 
     /// Exterior derivative. TODOC
-    pub fn d<Dimension: tn::Unsigned, Primality: MeshPrimality>(
-        &self,
-    ) -> crate::ExteriorDerivative<Dimension, Primality> {
-        let dim = Primality::d_input_primal_dim(Dimension::to_usize(), DIM);
-        let mat = Primality::convert_d_from_primal(self.build_coboundary_matrix(dim));
+    ///
+    /// ## Compile-time dimension checking
+    ///
+    /// The exterior derivative cannot be constructed
+    /// for dimensions higher than the mesh dimension minus one.
+    /// For instance, for a 2D mesh, the following will compile:
+    /// ```
+    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
+    /// # let mesh = tiny_mesh_2d();
+    /// let d = mesh.d::<1, Primal>();
+    /// ```
+    /// but this won't:
+    /// ```compile_fail
+    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
+    /// # let mesh = tiny_mesh_2d();
+    /// let d = mesh.d::<2, Primal>();
+    /// ```
+    /// Unfortunately, the error messages this produces are a little obtuse.
+    /// If you see compiler errors like
+    /// ```text
+    /// cannot subtract `typenum::bit::B1` from `typenum::uint:: ...
+    /// ```
+    /// this is what's happening.
+    pub fn d<const DIM: usize, Primality>(&self) -> crate::ExteriorDerivative<DIM, Primality>
+    where
+        na::Const<DIM>: na::DimNameAdd<na::U1>,
+        na::Const<MESH_DIM>: na::DimNameSub<na::DimNameSum<na::Const<DIM>, na::U1>>,
+        Primality: MeshPrimality,
+    {
+        let in_dim =
+            <Primality::DInputPrimalDim<na::Const<DIM>, na::Const<MESH_DIM>> as na::DimName>::USIZE;
+        let mat = Primality::convert_d_from_primal(self.build_coboundary_matrix(in_dim));
         crate::ExteriorDerivative::new(mat)
     }
 
-    /// Hodge star. Not implemented correctly yet, just here to test APIs and type composition.
-    pub fn star<Dimension: tn::Unsigned, Primality: MeshPrimality>(
-        &self,
-    ) -> crate::HodgeStar<Dimension, Primality> {
-        let dim = Primality::star_input_primal_dim(Dimension::to_usize(), DIM);
+    /// Hodge star. Not implemented correctly yet, just here to test APIs and operator composition.
+    ///
+    /// ## Compile-time dimension checking
+    ///
+    /// The Hodge star cannot be constructed
+    /// for dimensions higher than the mesh dimension.
+    /// For instance, for a 2D mesh, the following will compile:
+    /// ```
+    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
+    /// # let mesh = tiny_mesh_2d();
+    /// let star = mesh.star::<2, Primal>();
+    /// ```
+    /// but this won't:
+    /// ```compile_fail
+    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
+    /// # let mesh = tiny_mesh_2d();
+    /// let star = mesh.star::<3, Primal>();
+    /// ```
+    /// Unfortunately, the error messages this produces are a little obtuse.
+    /// If you see compiler errors like
+    /// ```text
+    /// cannot subtract `typenum::bit::B1` from `typenum::uint:: ...
+    /// ```
+    /// this is what's happening.
+    pub fn star<const DIM: usize, Primality>(&self) -> crate::HodgeStar<DIM, MESH_DIM, Primality>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        Primality: MeshPrimality,
+    {
+        let primal_dim =
+            <Primality::PrimalDim<na::Const<DIM>, na::Const<MESH_DIM>> as na::DimName>::USIZE;
+        let simplex_count = self.simplex_count_dyn(primal_dim);
+
         // TODO: replace this with the construction of an actual Hodge star
-        let diag = Primality::convert_star_from_primal(na::DVector::repeat(
-            self.simplex_count_dyn(dim),
-            2.0,
-        ));
-        crate::HodgeStar::new(diag)
+
+        let diag = na::DVector::repeat(simplex_count, 2.0);
+
+        crate::HodgeStar::new(Primality::convert_star_from_primal(diag))
     }
 
     /// Constructs a coboundary matrix taking primal `dim`-cochains
     /// to primal `dim+1`-cochains.
     /// Internal API used by `Self::d`.
     fn build_coboundary_matrix(&self, input_dim: usize) -> nas::CsrMatrix<f64> {
-        // no dimension check here, that is done in `d`
+        // no dimension check here, that is done by the generics in `d`
 
         // simplices of the output dimension
         let simplices = &self.simplices[input_dim];
@@ -284,34 +363,47 @@ pub struct Dual;
 
 /// Trait allowing types and mesh methods to be generic
 /// on whether they operate on the primal or dual mesh.
-/// Not intended to be implemented by users.
+///
+/// Not intended to be implemented by users,
+/// so elements are hidden from docs.
 pub trait MeshPrimality {
+    /// Maps Primal to Dual and Dual to Primal.
+    #[doc(hidden)]
     type Opposite: MeshPrimality;
+    /// GAT that allows computing the corresponding primal dimension
+    /// of a dual cochain at compile time.
+    #[doc(hidden)]
+    type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>>: na::DimName;
+    /// GAT that allows computing the dimension of the primal exterior derivative
+    /// that gets transposed into a dual one.
+    #[doc(hidden)]
+    type DInputPrimalDim<
+        Dim: na::DimNameAdd<na::U1>,
+        MeshDim: na::DimName + na::DimNameSub<na::DimNameSum<Dim, na::U1>>,
+    >: na::DimName;
 
-    /// Dimension to fetch data from when generating the exterior derivative.
-    fn d_input_primal_dim(dim: usize, mesh_dim: usize) -> usize;
     /// Conversion procedure for exterior derivative constructed for the primal mesh.
     /// The exterior derivative on the dual mesh is the transpose
-    /// of the one on the primal mesh
+    /// of the one on the primal mesh.
+    #[doc(hidden)]
     fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64>;
 
-    /// Dimension to fetch data from when generating the Hodge star.
-    fn star_input_primal_dim(dim: usize, mesh_dim: usize) -> usize;
     /// Conversion procedure for Hodge star constructed for the primal mesh.
-    /// The star on the dual mesh is the inverse of the one on the primal mesh
+    /// The star on the dual mesh is the inverse of the one on the primal mesh.
+    #[doc(hidden)]
     fn convert_star_from_primal(primal_diag: na::DVector<f64>) -> na::DVector<f64>;
 }
 
 impl MeshPrimality for Primal {
     type Opposite = Dual;
-    fn d_input_primal_dim(dim: usize, _mesh_dim: usize) -> usize {
-        dim
-    }
+    type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>> = Dim;
+    type DInputPrimalDim<
+        Dim: na::DimNameAdd<na::U1>,
+        MeshDim: na::DimName + na::DimNameSub<na::DimNameSum<Dim, na::U1>>,
+    > = Dim;
+
     fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64> {
         primal_d
-    }
-    fn star_input_primal_dim(dim: usize, _mesh_dim: usize) -> usize {
-        dim
     }
     fn convert_star_from_primal(primal_diag: na::DVector<f64>) -> na::DVector<f64> {
         primal_diag
@@ -320,14 +412,15 @@ impl MeshPrimality for Primal {
 
 impl MeshPrimality for Dual {
     type Opposite = Primal;
-    fn d_input_primal_dim(dim: usize, mesh_dim: usize) -> usize {
-        mesh_dim - dim - 1
-    }
+    type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>> =
+        na::DimNameDiff<MeshDim, Dim>;
+    type DInputPrimalDim<
+        Dim: na::DimNameAdd<na::U1>,
+        MeshDim: na::DimName + na::DimNameSub<na::DimNameSum<Dim, na::U1>>,
+    > = na::DimNameDiff<MeshDim, na::DimNameSum<Dim, na::U1>>;
+
     fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64> {
         primal_d.transpose()
-    }
-    fn star_input_primal_dim(dim: usize, mesh_dim: usize) -> usize {
-        mesh_dim - dim
     }
     fn convert_star_from_primal(mut primal_diag: na::DVector<f64>) -> na::DVector<f64> {
         for elem in primal_diag.iter_mut() {

@@ -1,13 +1,9 @@
 //! Cochains, i.e. values assigned to elements of a mesh.
 
 use nalgebra as na;
-use typenum as tn;
 
 /// A vector of values corresponding to
 /// a set of `Dimension`-dimensional cells on a mesh.
-///
-/// TODOC: once the API is confirmed to actually work,
-/// write about how typenum is used here
 #[derive(Clone)]
 pub struct Cochain<Dimension, Primality> {
     pub values: na::DVector<f64>,
@@ -43,10 +39,9 @@ impl<Dimension, Primality> crate::operator::OperatorInput for Cochain<Dimension,
 
 impl<Dimension, Primality> std::fmt::Debug for Cochain<Dimension, Primality>
 where
-    Dimension: tn::Unsigned,
+    Dimension: na::DimName,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let dim = Dimension::to_usize();
-        write!(f, "{}-cochain, values {:?}", dim, self.values)
+        write!(f, "{}-cochain, values {:?}", Dimension::USIZE, self.values)
     }
 }
