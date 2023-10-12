@@ -182,7 +182,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
     }
 
-    /// Get the number of `Dimension`-simplices in the complex.
+    /// Get the number of `DIM`-simplices in the complex.
     #[inline]
     pub fn simplex_count<const DIM: usize>(&self) -> usize
     where
@@ -208,28 +208,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// Create a new cochain with a value of zero
     /// for each `Dimension`-simplex in the mesh.
     ///
-    /// ## Compile-time dimension checking
-    ///
-    /// A cochain cannot be constructed
-    /// for dimensions higher than the mesh dimension.
-    /// For instance, the following will compile:
-    /// ```
-    /// # use dexterior::{Primal, SimplicialMesh, mesh::tiny_mesh_2d as test_mesh};
-    /// let mesh: SimplicialMesh<2> = test_mesh();
-    /// let c = mesh.new_zero_cochain::<2, Primal>();
-    /// ```
-    /// but this won't:
-    /// ```compile_fail
-    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
-    /// # let mesh = tiny_mesh_2d();
-    /// let c = mesh.new_zero_cochain::<3, Prial>();
-    /// ```
-    /// Unfortunately, the error messages this produces are a little obtuse.
-    /// If you see compiler errors like
-    /// ```text
-    /// cannot subtract `typenum::bit::B1` from `typenum::uint:: ...
-    /// ```
-    /// this is what's happening.
+    /// See the [module-level docs][crate#operators] for usage information.
     pub fn new_zero_cochain<const DIM: usize, Primality>(
         &self,
     ) -> crate::Cochain<na::Const<DIM>, Primality>
@@ -243,30 +222,9 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         crate::Cochain::zeros(self.simplex_count_dyn(primal_dim))
     }
 
-    /// Exterior derivative. TODOC
+    /// Construct an exterior derivative operator.
     ///
-    /// ## Compile-time dimension checking
-    ///
-    /// The exterior derivative cannot be constructed
-    /// for dimensions higher than the mesh dimension minus one.
-    /// For instance, for a 2D mesh, the following will compile:
-    /// ```
-    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
-    /// # let mesh = tiny_mesh_2d();
-    /// let d = mesh.d::<1, Primal>();
-    /// ```
-    /// but this won't:
-    /// ```compile_fail
-    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
-    /// # let mesh = tiny_mesh_2d();
-    /// let d = mesh.d::<2, Primal>();
-    /// ```
-    /// Unfortunately, the error messages this produces are a little obtuse.
-    /// If you see compiler errors like
-    /// ```text
-    /// cannot subtract `typenum::bit::B1` from `typenum::uint:: ...
-    /// ```
-    /// this is what's happening.
+    /// See the [module-level docs][crate#operators] for usage information.
     pub fn d<const DIM: usize, Primality>(&self) -> crate::ExteriorDerivative<DIM, Primality>
     where
         na::Const<DIM>: na::DimNameAdd<na::U1>,
@@ -279,30 +237,10 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         crate::ExteriorDerivative::new(mat)
     }
 
-    /// Hodge star. Not implemented correctly yet, just here to test APIs and operator composition.
+    /// Construct a Hodge star operator.
+    /// Not implemented correctly yet, currently just here to test APIs and operator composition.
     ///
-    /// ## Compile-time dimension checking
-    ///
-    /// The Hodge star cannot be constructed
-    /// for dimensions higher than the mesh dimension.
-    /// For instance, for a 2D mesh, the following will compile:
-    /// ```
-    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
-    /// # let mesh = tiny_mesh_2d();
-    /// let star = mesh.star::<2, Primal>();
-    /// ```
-    /// but this won't:
-    /// ```compile_fail
-    /// # use dexterior::{Primal, mesh::tiny_mesh_2d};
-    /// # let mesh = tiny_mesh_2d();
-    /// let star = mesh.star::<3, Primal>();
-    /// ```
-    /// Unfortunately, the error messages this produces are a little obtuse.
-    /// If you see compiler errors like
-    /// ```text
-    /// cannot subtract `typenum::bit::B1` from `typenum::uint:: ...
-    /// ```
-    /// this is what's happening.
+    /// See the [module-level docs][crate#operators] for usage information.
     pub fn star<const DIM: usize, Primality>(&self) -> crate::HodgeStar<DIM, MESH_DIM, Primality>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
@@ -362,10 +300,11 @@ pub struct Primal;
 pub struct Dual;
 
 /// Trait allowing types and mesh methods to be generic
-/// on whether they operate on the primal or dual mesh.
+/// on whether they operate on the primal ([`Primal`][self::Primal])
+/// or dual ([`Dual`][self::Dual]) mesh.
 ///
 /// Not intended to be implemented by users,
-/// so elements are hidden from docs.
+/// so methods are hidden from docs.
 pub trait MeshPrimality {
     /// Maps Primal to Dual and Dual to Primal.
     #[doc(hidden)]
@@ -558,11 +497,10 @@ pub fn tiny_mesh_3d() -> SimplicialMesh<3> {
     SimplicialMesh::new(vertices, indices)
 }
 
-// Module is pub(crate) to expose the test meshes to other modules' tests.
 // Tests here are concerned with the mesh structure being constructed correctly.
 // For tests on exterior derivative and Hodge star, see `operator.rs`
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
 
     /// Lower-dimensional simplices and boundaries

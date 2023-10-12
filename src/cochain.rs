@@ -3,9 +3,19 @@
 use nalgebra as na;
 
 /// A vector of values corresponding to
-/// a set of `Dimension`-dimensional cells on a mesh.
+/// a set of `k`-dimensional cells on a mesh.
+///
+/// Cochains can be constructed using the following methods
+/// on [`SimplicialMesh`][crate::SimplicialMesh]:
+/// - [`new_zero_cochain`][crate::SimplicialMesh::new_zero_cochain]
 #[derive(Clone)]
 pub struct Cochain<Dimension, Primality> {
+    /// The underlying vector of real values, exposed for convenience.
+    ///
+    /// Note that changing the dimension of this vector at runtime
+    /// will cause a dimension mismatch with operators,
+    /// leading to a panic when an operator is applied.
+    /// Use with caution.
     pub values: na::DVector<f64>,
     _marker: std::marker::PhantomData<(Dimension, Primality)>,
 }
@@ -43,5 +53,11 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}-cochain, values {:?}", Dimension::USIZE, self.values)
+    }
+}
+
+impl<Dimension, Primality> PartialEq for Cochain<Dimension, Primality> {
+    fn eq(&self, other: &Self) -> bool {
+        self.values == other.values
     }
 }

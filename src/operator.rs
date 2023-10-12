@@ -1,31 +1,38 @@
+//! Composable operators for doing math on [`Cochain`][crate::Cochain]s.
+
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
 use crate::{mesh::MeshPrimality, Cochain};
 
-// The idea of this trait would be to give composability to mesh-based operators
-// in a way that lets them check the dimension and primality
-// of cochains they operate on at compile-time.
-// Not sure if this will pan out, just sketching for now
+/// Trait enabling operator composition checked for compatibility at compile time.
 pub trait Operator {
+    /// The type of cochain this operator takes as an input.
     type Input: OperatorInput;
+    /// The type of cochain this operator produces as an output.
     type Output: OperatorInput;
 
+    /// Method to apply this operator to an input cochain.
     fn apply(&self, input: &Self::Input) -> Self::Output;
+    /// Method to convert this operator into a CSR matrix for composition.
     fn into_csr(self) -> nas::CsrMatrix<f64>;
 }
 
+/// Trait implemented by [`Cochain`]s to enable operators
+/// to construct and deconstruct them in a generic way.
 pub trait OperatorInput {
+    /// Get the underlying vector of values in the cochain.
     fn values(&self) -> &na::DVector<f64>;
+    /// Construct a cochain from a vector of values.
     fn from_values(values: na::DVector<f64>) -> Self;
 }
 
+/// The exterior derivative, also known as the coboundary operator.
+///
+/// This operator is constructed from a mesh with [`SimplicialMesh::d`][crate::SimplicialMesh::d].
+/// See its documentation for details.
 #[derive(Clone, Debug)]
 pub struct ExteriorDerivative<const DIM: usize, Primality> {
-    // maybe this could be more efficiently implemented as a bespoke operator
-    // since every row of the coboundary matrix has the same number of elements?
-    // OTOH, this would make it harder to express the dual
-    // (but the dual could be a separate type instead of this being generic)
     mat: nas::CsrMatrix<f64>,
     _marker: std::marker::PhantomData<Primality>,
 }
@@ -62,6 +69,10 @@ impl<const DIM: usize, Primality> PartialEq for ExteriorDerivative<DIM, Primalit
     }
 }
 
+/// A diagonal Hodge star operator.
+///
+/// This operator is constructed from a mesh with [`SimplicialMesh::star`][crate::SimplicialMesh::star].
+/// See its documentation for details.
 #[derive(Clone, Debug)]
 pub struct HodgeStar<const DIM: usize, const MESH_DIM: usize, Primality> {
     // a diagonal vector is a more efficient form of storage than a CSR matrix.
@@ -121,6 +132,15 @@ impl<const DIM: usize, const MESH_DIM: usize, Primality> PartialEq
     }
 }
 
+/// A composition of two [`Operator`][self::Operator]s.
+///
+/// Operator composition can be done using multiplication syntax:
+/// ```
+/// # use dexterior::{Primal, ComposedOperator, mesh::tiny_mesh_2d};
+/// # let mesh = tiny_mesh_2d();
+/// let op: ComposedOperator<_, _> = mesh.star() * mesh.d::<1, Primal>();
+/// ```
+/// A free function [`compose`][self::compose] is also provided for the same purpose.
 #[derive(Clone, Debug)]
 pub struct ComposedOperator<Left, Right> {
     mat: nas::CsrMatrix<f64>,
