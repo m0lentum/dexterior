@@ -208,9 +208,7 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
     /// for each `Dimension`-simplex in the mesh.
     ///
     /// See the [module-level docs][crate#operators] for usage information.
-    pub fn new_zero_cochain<const DIM: usize, Primality>(
-        &self,
-    ) -> crate::Cochain<na::Const<DIM>, Primality>
+    pub fn new_zero_cochain<const DIM: usize, Primality>(&self) -> crate::Cochain<DIM, Primality>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,

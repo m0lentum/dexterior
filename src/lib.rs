@@ -88,15 +88,11 @@ To apply it to a primal 1-cochain,
 we can use multiplication syntax:
 ```
 # use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Cochain};
-# use nalgebra::Const;
 # let mesh = tiny_mesh_2d();
 # let primal_d_1 = mesh.d::<1, Primal>();
 # let primal_1_cochain = mesh.new_zero_cochain::<1, Primal>();
-let result: Cochain<Const<2>, Primal> = &primal_d_1 * &primal_1_cochain;
+let result: Cochain<2, Primal> = &primal_d_1 * &primal_1_cochain;
 ```
-
-(Note: for technical reasons, the [`Cochain`][crate::Cochain] types's generics
-use `nalgebra`'s [`Const`][nalgebra::Const] instead of `const usize`.)
 
 ### Hodge star
 
@@ -142,11 +138,10 @@ The resulting type is an operator that takes the rightmost operator's input
 and produces the leftmost operator's output:
 ```
 # use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, Dual, Cochain};
-# use nalgebra::Const;
 # let mesh = tiny_mesh_3d();
 # let divergence = mesh.star() * mesh.d() * mesh.star();
-let input: Cochain<Const<1>, Primal> = mesh.new_zero_cochain();
-let output: Cochain<Const<0>, Primal> = &divergence * &input;
+let input: Cochain<1, Primal> = mesh.new_zero_cochain();
+let output: Cochain<0, Primal> = &divergence * &input;
 ```
 
 This may seem verbose, and it is, but don't worry --
@@ -162,19 +157,16 @@ which tracks the input and output cochain types of an operator.
 For example, all of the following would fail to compile:
 ```compile_fail
 # use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Dual};
-# use nalgebra::Const;
 # let mesh = tiny_mesh_2d();
 mesh.d::<1, Primal>() * &mesh.new_zero_cochain::<2, Primal>();
 ```
 ```compile_fail
 # use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Dual};
-# use nalgebra::Const;
 # let mesh = tiny_mesh_2d();
 mesh.star::<2, Dual>() * &mesh.new_zero_cochain::<2, Primal>();
 ```
 ```compile_fail
 # use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Dual};
-# use nalgebra::Const;
 # let mesh = tiny_mesh_2d();
 mesh.star::<0, Dual>() * &mesh.d::<1, Primal>();
 ```
@@ -244,12 +236,11 @@ If you need to store an operator in a struct,
 an alternative to writing all this out is to store it as a trait object:
 ```
 # use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, Operator, Cochain};
-# use nalgebra::Const;
 # let mesh = tiny_mesh_3d();
 struct MyOperators {
     divergence: Box<dyn Operator<
-        Input = Cochain<Const<1>, Primal>,
-        Output = Cochain<Const<0>, Primal>,
+        Input = Cochain<1, Primal>,
+        Output = Cochain<0, Primal>,
     >>,
 }
 let ops = MyOperators {
@@ -259,20 +250,6 @@ let ops = MyOperators {
 let input = mesh.new_zero_cochain::<1, Primal>();
 let output = &ops.divergence * &input;
 ```
-The type alias [`DynOp`][crate::DynOp] is provided
-to make this pattern more convenient.
-The previous `MyOperators` struct could be written like this:
-```
-# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, DynOp};
-# use nalgebra::Const;
-# let mesh = tiny_mesh_3d();
-struct MyOperators {
-    divergence: Box<DynOp<1, Primal, 0, Primal>>,
-}
-# let ops = MyOperators {
-#   divergence: Box::new(mesh.star() * mesh.d() * mesh.star()),
-# };
-```
 
 Alternatively, you can opt out of `dexterior`'s type checks
 by converting your operators into [`nalgebra_sparse::CsrMatrix`][nalgebra_sparse::CsrMatrix],
@@ -281,7 +258,6 @@ stored in the `values` field of [`Cochain`][crate::Cochain]:
 ```
 # use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, Cochain};
 # use nalgebra_sparse::CsrMatrix;
-# use nalgebra::Const;
 # let mesh = tiny_mesh_3d();
 struct MyOperators {
     divergence: CsrMatrix<f64>,
@@ -313,4 +289,4 @@ pub use cochain::Cochain;
 
 pub mod operator;
 #[doc(inline)]
-pub use operator::{ComposedOperator, DynOp, ExteriorDerivative, HodgeStar, Operator};
+pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Operator};

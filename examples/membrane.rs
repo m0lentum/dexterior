@@ -5,13 +5,9 @@
 //! made to point out unimplemented parts of the library.
 
 use dexterior as dex;
-use nalgebra as na;
 
-// TODO: would be really nice if cochains could take a const generic instead of Const
-// this could be a type alias, but even better if it could be in the type itself.
-// investigate
-type Pressure = dex::Cochain<na::Const<0>, dex::Dual>;
-type Flux = dex::Cochain<na::Const<1>, dex::Primal>;
+type Pressure = dex::Cochain<0, dex::Dual>;
+type Flux = dex::Cochain<1, dex::Primal>;
 
 struct State {
     p: Pressure,

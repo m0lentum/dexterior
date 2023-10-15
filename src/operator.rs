@@ -3,7 +3,7 @@
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
-use crate::{simplicial_complex::MeshPrimality, Cochain};
+use crate::{cochain::CochainImpl, simplicial_complex::MeshPrimality};
 
 /// Trait enabling operator composition checked for compatibility at compile time.
 pub trait Operator {
@@ -27,16 +27,6 @@ pub trait OperatorInput {
     fn from_values(values: na::DVector<f64>) -> Self;
 }
 
-/// Convenience type alias for concisely expressing operators as trait objects.
-///
-/// The first two generics are for the input cochain
-/// and the last two for the output.
-/// See the [module-level docs][crate#pain-points-and-workarounds] for a usage example.
-pub type DynOp<const IN_DIM: usize, InPrimality, const OUT_DIM: usize, OutPrimality> = dyn Operator<
-    Input = Cochain<na::Const<IN_DIM>, InPrimality>,
-    Output = Cochain<na::Const<OUT_DIM>, OutPrimality>,
->;
-
 /// The exterior derivative, also known as the coboundary operator.
 ///
 /// This operator is constructed from a mesh with [`SimplicialComplex::d`][crate::SimplicialComplex::d].
@@ -51,8 +41,8 @@ impl<const DIM: usize, Primality> Operator for ExteriorDerivative<DIM, Primality
 where
     na::Const<DIM>: na::DimNameAdd<na::U1>,
 {
-    type Input = Cochain<na::Const<DIM>, Primality>;
-    type Output = Cochain<na::DimNameSum<na::Const<DIM>, na::U1>, Primality>;
+    type Input = CochainImpl<na::Const<DIM>, Primality>;
+    type Output = CochainImpl<na::DimNameSum<na::Const<DIM>, na::U1>, Primality>;
 
     fn apply(&self, input: &Self::Input) -> Self::Output {
         Self::Output::from_values(&self.mat * input.values())
@@ -97,9 +87,9 @@ where
     na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
     Primality: MeshPrimality,
 {
-    type Input = Cochain<na::Const<DIM>, Primality>;
+    type Input = CochainImpl<na::Const<DIM>, Primality>;
     type Output =
-        Cochain<na::DimNameDiff<na::Const<MESH_DIM>, na::Const<DIM>>, Primality::Opposite>;
+        CochainImpl<na::DimNameDiff<na::Const<MESH_DIM>, na::Const<DIM>>, Primality::Opposite>;
 
     fn apply(&self, input: &Self::Input) -> Self::Output {
         let input = input.values();
@@ -247,31 +237,31 @@ where
 
 // cochains
 
-impl<const D: usize, P> std::ops::Mul<&Cochain<na::Const<D>, P>> for ExteriorDerivative<D, P>
+impl<const D: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>> for ExteriorDerivative<D, P>
 where
     na::Const<D>: na::DimNameAdd<na::U1>,
 {
     type Output = <Self as Operator>::Output;
 
-    fn mul(self, rhs: &Cochain<na::Const<D>, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
 // impl for reference too, because the impl for value consumes the operator
 // and we don't usually want that
-impl<const D: usize, P> std::ops::Mul<&Cochain<na::Const<D>, P>> for &ExteriorDerivative<D, P>
+impl<const D: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>> for &ExteriorDerivative<D, P>
 where
     na::Const<D>: na::DimNameAdd<na::U1>,
 {
     type Output = <ExteriorDerivative<D, P> as Operator>::Output;
 
-    fn mul(self, rhs: &Cochain<na::Const<D>, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
-impl<const D: usize, const MD: usize, P> std::ops::Mul<&Cochain<na::Const<D>, P>>
+impl<const D: usize, const MD: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>>
     for HodgeStar<D, MD, P>
 where
     na::Const<MD>: na::DimNameSub<na::Const<D>>,
@@ -279,12 +269,12 @@ where
 {
     type Output = <Self as Operator>::Output;
 
-    fn mul(self, rhs: &Cochain<na::Const<D>, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
-impl<const D: usize, const MD: usize, P> std::ops::Mul<&Cochain<na::Const<D>, P>>
+impl<const D: usize, const MD: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>>
     for &HodgeStar<D, MD, P>
 where
     na::Const<MD>: na::DimNameSub<na::Const<D>>,
@@ -292,15 +282,15 @@ where
 {
     type Output = <HodgeStar<D, MD, P> as Operator>::Output;
 
-    fn mul(self, rhs: &Cochain<na::Const<D>, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
-impl<L, R, D, P> std::ops::Mul<&Cochain<D, P>> for ComposedOperator<L, R>
+impl<L, R, D, P> std::ops::Mul<&CochainImpl<D, P>> for ComposedOperator<L, R>
 where
     L: Operator<Input = R::Output>,
-    R: Operator<Input = Cochain<D, P>>,
+    R: Operator<Input = CochainImpl<D, P>>,
 {
     type Output = <Self as Operator>::Output;
 
@@ -309,10 +299,10 @@ where
     }
 }
 
-impl<L, R, D, P> std::ops::Mul<&Cochain<D, P>> for &ComposedOperator<L, R>
+impl<L, R, D, P> std::ops::Mul<&CochainImpl<D, P>> for &ComposedOperator<L, R>
 where
     L: Operator<Input = R::Output>,
-    R: Operator<Input = Cochain<D, P>>,
+    R: Operator<Input = CochainImpl<D, P>>,
 {
     type Output = <ComposedOperator<L, R> as Operator>::Output;
 
@@ -323,36 +313,38 @@ where
 
 // impls for trait objects
 
-impl<D, P, O> std::ops::Mul<&Cochain<D, P>> for &dyn Operator<Input = Cochain<D, P>, Output = O>
+impl<D, P, O> std::ops::Mul<&CochainImpl<D, P>>
+    for &dyn Operator<Input = CochainImpl<D, P>, Output = O>
 where
     O: OperatorInput,
 {
     type Output = O;
 
-    fn mul(self, rhs: &Cochain<D, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<D, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
-impl<D, P, O> std::ops::Mul<&Cochain<D, P>> for Box<dyn Operator<Input = Cochain<D, P>, Output = O>>
+impl<D, P, O> std::ops::Mul<&CochainImpl<D, P>>
+    for Box<dyn Operator<Input = CochainImpl<D, P>, Output = O>>
 where
     O: OperatorInput,
 {
     type Output = O;
 
-    fn mul(self, rhs: &Cochain<D, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<D, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
-impl<D, P, O> std::ops::Mul<&Cochain<D, P>>
-    for &Box<dyn Operator<Input = Cochain<D, P>, Output = O>>
+impl<D, P, O> std::ops::Mul<&CochainImpl<D, P>>
+    for &Box<dyn Operator<Input = CochainImpl<D, P>, Output = O>>
 where
     O: OperatorInput,
 {
     type Output = O;
 
-    fn mul(self, rhs: &Cochain<D, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<D, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
@@ -429,6 +421,6 @@ mod tests {
         let c1 = mesh.new_zero_cochain::<1, Primal>();
         let complicated_op =
             mesh.star() * mesh.d() * mesh.d() * mesh.star() * mesh.d() * mesh.star();
-        let _res: Cochain<na::Const<0>, Dual> = complicated_op * &c1;
+        let _res: CochainImpl<na::Const<0>, Dual> = complicated_op * &c1;
     }
 }

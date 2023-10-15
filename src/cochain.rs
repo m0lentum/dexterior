@@ -8,8 +8,16 @@ use nalgebra as na;
 /// Cochains can be constructed using the following methods
 /// on [`SimplicialComplex`][crate::SimplicialComplex]:
 /// - [`new_zero_cochain`][crate::SimplicialComplex::new_zero_cochain]
+pub type Cochain<const DIM: usize, Primality> = CochainImpl<na::Const<DIM>, Primality>;
+
+/// The cochain type used internally by Dexterior.
+///
+/// This type cannot use const generics because they cannot currently
+/// do the compile-time generic arithmetic needed for operators.
+/// Thus, the more convenient alias [`Cochain`][self::Cochain]
+/// is preferred for public APIs.
 #[derive(Clone)]
-pub struct Cochain<Dimension, Primality> {
+pub struct CochainImpl<Dimension, Primality> {
     /// The underlying vector of real values, exposed for convenience.
     ///
     /// Note that changing the dimension of this vector at runtime
@@ -20,7 +28,7 @@ pub struct Cochain<Dimension, Primality> {
     _marker: std::marker::PhantomData<(Dimension, Primality)>,
 }
 
-impl<Dimension, Primality> Cochain<Dimension, Primality> {
+impl<Dimension, Primality> CochainImpl<Dimension, Primality> {
     // constructors only exposed to crate
     // because cochains are always based on a mesh
     // and it doesn't make sense for a user to create them directly;
@@ -40,7 +48,7 @@ impl<Dimension, Primality> Cochain<Dimension, Primality> {
     }
 }
 
-impl<Dimension, Primality> crate::operator::OperatorInput for Cochain<Dimension, Primality> {
+impl<Dimension, Primality> crate::operator::OperatorInput for CochainImpl<Dimension, Primality> {
     fn values(&self) -> &na::DVector<f64> {
         &self.values
     }
@@ -57,7 +65,7 @@ impl<Dimension, Primality> crate::operator::OperatorInput for Cochain<Dimension,
 // std trait impls for math ops and such
 //
 
-impl<D, P> std::fmt::Debug for Cochain<D, P>
+impl<D, P> std::fmt::Debug for CochainImpl<D, P>
 where
     D: na::DimName,
 {
@@ -66,38 +74,38 @@ where
     }
 }
 
-impl<D, P> PartialEq for Cochain<D, P> {
+impl<D, P> PartialEq for CochainImpl<D, P> {
     fn eq(&self, other: &Self) -> bool {
         self.values == other.values
     }
 }
 
-impl<D, P> std::ops::Add for Cochain<D, P> {
+impl<D, P> std::ops::Add for CochainImpl<D, P> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Cochain::from_values(self.values + rhs.values)
+        CochainImpl::from_values(self.values + rhs.values)
     }
 }
 
-impl<D, P> std::ops::AddAssign for Cochain<D, P> {
+impl<D, P> std::ops::AddAssign for CochainImpl<D, P> {
     fn add_assign(&mut self, rhs: Self) {
         self.values += rhs.values;
     }
 }
 
-impl<D, P> std::ops::Mul<Cochain<D, P>> for f64 {
-    type Output = Cochain<D, P>;
+impl<D, P> std::ops::Mul<CochainImpl<D, P>> for f64 {
+    type Output = CochainImpl<D, P>;
 
-    fn mul(self, rhs: Cochain<D, P>) -> Self::Output {
-        Cochain::from_values(self * rhs.values)
+    fn mul(self, rhs: CochainImpl<D, P>) -> Self::Output {
+        CochainImpl::from_values(self * rhs.values)
     }
 }
 
-impl<D, P> std::ops::Mul<&Cochain<D, P>> for f64 {
-    type Output = Cochain<D, P>;
+impl<D, P> std::ops::Mul<&CochainImpl<D, P>> for f64 {
+    type Output = CochainImpl<D, P>;
 
-    fn mul(self, rhs: &Cochain<D, P>) -> Self::Output {
-        Cochain::from_values(self * &rhs.values)
+    fn mul(self, rhs: &CochainImpl<D, P>) -> Self::Output {
+        CochainImpl::from_values(self * &rhs.values)
     }
 }
