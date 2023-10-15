@@ -92,7 +92,7 @@ we can use multiplication syntax:
 # let mesh = tiny_mesh_2d();
 # let primal_d_1 = mesh.d::<1, Primal>();
 # let primal_1_cochain = mesh.new_zero_cochain::<1, Primal>();
-let result: Cochain<Const<2>, Primal> = primal_d_1 * &primal_1_cochain;
+let result: Cochain<Const<2>, Primal> = &primal_d_1 * &primal_1_cochain;
 ```
 
 (Note: for technical reasons, the [`Cochain`][crate::Cochain] types's generics
@@ -146,7 +146,7 @@ and produces the leftmost operator's output:
 # let mesh = tiny_mesh_3d();
 # let divergence = mesh.star() * mesh.d() * mesh.star();
 let input: Cochain<Const<1>, Primal> = mesh.new_zero_cochain();
-let output: Cochain<Const<0>, Primal> = divergence * &input;
+let output: Cochain<Const<0>, Primal> = &divergence * &input;
 ```
 
 This may seem verbose, and it is, but don't worry --
@@ -194,7 +194,7 @@ If you apply the divergence to a cochain in the same function,
 # let mesh = tiny_mesh_3d();
 let divergence = mesh.star() * mesh.d() * mesh.star();
 let input = mesh.new_zero_cochain::<1, Primal>();
-let output = divergence * &input;
+let output = &divergence * &input;
 ```
 also compiles.
 
@@ -256,16 +256,23 @@ let ops = MyOperators {
     divergence: Box::new(mesh.star() * mesh.d() * mesh.star()),
 };
 
-// TODO: actually this doesn't work right now
-// because Mul is not implemented for `dyn Operator`.
-// This pattern should be supported.
-
 let input = mesh.new_zero_cochain::<1, Primal>();
-let output = *ops.divergence * &input;
+let output = &ops.divergence * &input;
 ```
-(another TODO: can we get the Cochain type take a const generic instead of
-`nalgebra::Const`? That would improve the ergonomics of this pattern quite a bit.
-Alternatively, type aliases may be helpful here.)
+The type alias [`DynOp`][crate::DynOp] is provided
+to make this pattern more convenient.
+The previous `MyOperators` struct could be written like this:
+```
+# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, DynOp};
+# use nalgebra::Const;
+# let mesh = tiny_mesh_3d();
+struct MyOperators {
+    divergence: Box<DynOp<1, Primal, 0, Primal>>,
+}
+# let ops = MyOperators {
+#   divergence: Box::new(mesh.star() * mesh.d() * mesh.star()),
+# };
+```
 
 Alternatively, you can opt out of `dexterior`'s type checks
 by converting your operators into [`nalgebra_sparse::CsrMatrix`][nalgebra_sparse::CsrMatrix],
@@ -287,7 +294,7 @@ let ops = MyOperators {
 };
 
 let input: nalgebra::DVector<f64> = mesh.new_zero_cochain::<1, Primal>().values;
-let output: nalgebra::DVector<f64> = ops.divergence * &input;
+let output: nalgebra::DVector<f64> = &ops.divergence * &input;
 ```
 
 */
@@ -306,4 +313,4 @@ pub use cochain::Cochain;
 
 pub mod operator;
 #[doc(inline)]
-pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Operator};
+pub use operator::{ComposedOperator, DynOp, ExteriorDerivative, HodgeStar, Operator};
