@@ -1,13 +1,12 @@
-//! Tools for creating and working with DEC-compatible meshes.
+//! The core data structure of DEC, the simplicial complex.
 
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
-/// A mesh composed of only simplices
+/// A DEC complex where the primal cells are all simplices
 /// (points, line segments, triangles, tetrahedra etc).
-/// This is the primal mesh in a DEC complex.
 #[derive(Clone, Debug)]
-pub struct SimplicialMesh<const DIM: usize> {
+pub struct SimplicialComplex<const DIM: usize> {
     vertices: Vec<na::SVector<f64, DIM>>,
     /// storage for each dimension of simplex in the mesh
     /// (except 0, as those are just the vertices)
@@ -61,8 +60,8 @@ enum Orientation {
     Backward = -1,
 }
 
-impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
-    /// Construct a SimplicialMesh from raw vertices and indices.
+impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
+    /// Construct a SimplicialComplex from raw vertices and indices.
     ///
     /// The indices are given as a flat array,
     /// where every `DIM + 1` indices correspond to one `DIM`-simplex.
@@ -440,7 +439,7 @@ type Vec3 = na::SVector<f64, 3>;
 /// It is not meant to be used by users and thus hidden from docs.
 /// Eventually there should be a mesh generator API that can replace this.
 #[doc(hidden)]
-pub fn tiny_mesh_2d() -> SimplicialMesh<2> {
+pub fn tiny_mesh_2d() -> SimplicialComplex<2> {
     let vertices = vec![
         Vec2::new(-0.5, 1.0),
         Vec2::new(0.5, 1.0),
@@ -459,7 +458,7 @@ pub fn tiny_mesh_2d() -> SimplicialMesh<2> {
             3, 5, 6,
             3, 4, 6,
         ];
-    SimplicialMesh::new(vertices, indices)
+    SimplicialComplex::new(vertices, indices)
 }
 
 /// A small 3D mesh for testing basic functionality.
@@ -477,7 +476,7 @@ pub fn tiny_mesh_2d() -> SimplicialMesh<2> {
 /// It is not meant to be used by users and thus hidden from docs.
 /// Eventually there should be a mesh generator API that can replace this.
 #[doc(hidden)]
-pub fn tiny_mesh_3d() -> SimplicialMesh<3> {
+pub fn tiny_mesh_3d() -> SimplicialComplex<3> {
     let vertices = vec![
         Vec3::new(0.0, 1.0, 0.0),
         Vec3::new(-0.5, 0.0, 0.0),
@@ -494,7 +493,7 @@ pub fn tiny_mesh_3d() -> SimplicialMesh<3> {
             1, 2, 3, 5,
         ];
 
-    SimplicialMesh::new(vertices, indices)
+    SimplicialComplex::new(vertices, indices)
 }
 
 // Tests here are concerned with the mesh structure being constructed correctly.

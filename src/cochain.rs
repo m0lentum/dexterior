@@ -6,8 +6,8 @@ use nalgebra as na;
 /// a set of `k`-dimensional cells on a mesh.
 ///
 /// Cochains can be constructed using the following methods
-/// on [`SimplicialMesh`][crate::SimplicialMesh]:
-/// - [`new_zero_cochain`][crate::SimplicialMesh::new_zero_cochain]
+/// on [`SimplicialComplex`][crate::SimplicialComplex]:
+/// - [`new_zero_cochain`][crate::SimplicialComplex::new_zero_cochain]
 #[derive(Clone)]
 pub struct Cochain<Dimension, Primality> {
     /// The underlying vector of real values, exposed for convenience.
@@ -24,7 +24,7 @@ impl<Dimension, Primality> Cochain<Dimension, Primality> {
     // constructors only exposed to crate
     // because cochains are always based on a mesh
     // and it doesn't make sense for a user to create them directly;
-    // public constructors are methods on SimplicialMesh
+    // public constructors are methods on SimplicialComplex
 
     pub(crate) fn zeros(len: usize) -> Self {
         Self {
