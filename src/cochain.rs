@@ -26,11 +26,17 @@ impl<Dimension, Primality> Cochain<Dimension, Primality> {
     // and it doesn't make sense for a user to create them directly;
     // public constructors are methods on SimplicialComplex
 
-    pub(crate) fn zeros(len: usize) -> Self {
+    #[inline]
+    pub(crate) fn from_values(values: na::DVector<f64>) -> Self {
         Self {
-            values: na::DVector::zeros(len),
+            values,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    #[inline]
+    pub(crate) fn zeros(len: usize) -> Self {
+        Self::from_values(na::DVector::zeros(len))
     }
 }
 
@@ -47,17 +53,51 @@ impl<Dimension, Primality> crate::operator::OperatorInput for Cochain<Dimension,
     }
 }
 
-impl<Dimension, Primality> std::fmt::Debug for Cochain<Dimension, Primality>
+//
+// std trait impls for math ops and such
+//
+
+impl<D, P> std::fmt::Debug for Cochain<D, P>
 where
-    Dimension: na::DimName,
+    D: na::DimName,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-cochain, values {:?}", Dimension::USIZE, self.values)
+        write!(f, "{}-cochain, values {:?}", D::USIZE, self.values)
     }
 }
 
-impl<Dimension, Primality> PartialEq for Cochain<Dimension, Primality> {
+impl<D, P> PartialEq for Cochain<D, P> {
     fn eq(&self, other: &Self) -> bool {
         self.values == other.values
+    }
+}
+
+impl<D, P> std::ops::Add for Cochain<D, P> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Cochain::from_values(self.values + rhs.values)
+    }
+}
+
+impl<D, P> std::ops::AddAssign for Cochain<D, P> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.values += rhs.values;
+    }
+}
+
+impl<D, P> std::ops::Mul<Cochain<D, P>> for f64 {
+    type Output = Cochain<D, P>;
+
+    fn mul(self, rhs: Cochain<D, P>) -> Self::Output {
+        Cochain::from_values(self * rhs.values)
+    }
+}
+
+impl<D, P> std::ops::Mul<&Cochain<D, P>> for f64 {
+    type Output = Cochain<D, P>;
+
+    fn mul(self, rhs: &Cochain<D, P>) -> Self::Output {
+        Cochain::from_values(self * &rhs.values)
     }
 }
