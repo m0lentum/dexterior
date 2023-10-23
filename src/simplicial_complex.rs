@@ -3,6 +3,8 @@
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
+use itertools::izip;
+
 /// A DEC complex where the primal cells are all simplices
 /// (points, line segments, triangles, tetrahedra etc).
 #[derive(Clone, Debug)]
@@ -10,20 +12,21 @@ pub struct SimplicialComplex<const DIM: usize> {
     vertices: Vec<na::SVector<f64, DIM>>,
     /// storage for each dimension of simplex in the mesh
     /// (except 0, as those are just the vertices)
-    simplices: Vec<SimplexCollection>,
+    simplices: Vec<SimplexCollection<DIM>>,
 }
 
 #[derive(Clone, Debug, Default)]
-struct SimplexCollection {
+struct SimplexCollection<const DIM: usize> {
     /// points per simplex in the storage Vec
     simplex_size: usize,
     /// indices stored in a flat Vec to avoid generics for dimension
     indices: Vec<usize>,
     /// boundary simplices on the next level down
     boundaries: Vec<BoundarySimplex>,
+    circumcenters: Vec<na::SVector<f64, DIM>>,
 }
 
-impl SimplexCollection {
+impl<const DIM: usize> SimplexCollection<DIM> {
     /// Get the number of simplices in the collection.
     #[inline]
     fn len(&self) -> usize {
@@ -66,7 +69,7 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
     /// The indices are given as a flat array,
     /// where every `DIM + 1` indices correspond to one `DIM`-simplex.
     pub fn new(vertices: Vec<na::SVector<f64, MESH_DIM>>, indices: Vec<usize>) -> Self {
-        let mut simplices: Vec<SimplexCollection> = (0..MESH_DIM)
+        let mut simplices: Vec<SimplexCollection<MESH_DIM>> = (0..MESH_DIM)
             .map(|i| SimplexCollection {
                 // 0-simplices are omitted from these collections,
                 // so the one at index 0 is the collection of 1-simplices,
@@ -172,6 +175,65 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
                 // (TODO: should we already build the CSR matrix here
                 // and not have this current structure at all?)
                 upper_simplex.boundaries.sort_unstable_by_key(|b| b.index);
+            }
+        }
+
+        // compute circumcenters
+
+        // for 1-simplices (line segments) the circumcenter is simply the midpoint,
+        // compute those as a special case for efficiency
+
+        let simplices_1 = &mut simplices[0];
+        let indices_1 = &simplices_1.indices;
+        for indices in indices_1.chunks_exact(2) {
+            let verts = [vertices[indices[0]], vertices[indices[1]]];
+            simplices_1.circumcenters.push(0.5 * (verts[0] + verts[1]));
+        }
+
+        // for the rest, solve for the circumcenter in barycentric coordinates
+        // using the linear system from the PyDEC paper
+        // (https://dl.acm.org/doi/pdf/10.1145/2382585.2382588, section 10.1)
+        for simplices in &mut simplices[1..] {
+            let indices = &simplices.indices;
+            // dimension is simplex_size + 1 because there's an extra row
+            // for normalizing the barycentric coordinates
+            let system_dim = simplices.simplex_size + 1;
+            let mut coef_mat = na::DMatrix::zeros(system_dim, system_dim);
+            let mut rhs = na::DVector::zeros(system_dim);
+            // fill in the constant last row and column first
+            for i in 0..system_dim - 1 {
+                coef_mat[(i, system_dim - 1)] = 1.0;
+                coef_mat[(system_dim - 1, i)] = 1.0;
+            }
+            rhs[system_dim - 1] = 1.0;
+
+            // solve for each simplex, reusing the allocated matrices
+            for indices in indices.chunks_exact(simplices.simplex_size) {
+                for row in 0..simplices.simplex_size {
+                    let row_vert = vertices[indices[row]];
+                    rhs[row] = row_vert.dot(&row_vert);
+                    for col in 0..simplices.simplex_size {
+                        let col_vert = vertices[indices[col]];
+                        coef_mat[(row, col)] = 2.0 * row_vert.dot(&col_vert);
+                    }
+                }
+                // a decomposition is needed to solve the linear system
+                // and it seems nalgebra's APIs don't allow reusing allocated memory for it.
+                // shouldn't be a big deal to reallocate this for every simplex,
+                // we'll optimize later if it becomes an issue
+
+                // TODO: return an error instead of panicking if the system is singular
+                let bary = coef_mat
+                    .clone()
+                    .lu()
+                    .solve(&rhs)
+                    .expect("Degenerate simplex");
+                // compute circumcenter in cartesian coordinates
+                // from the barycentric coordinates obtained from the linear system
+                let circumcenter = izip!(bary.iter(), indices)
+                    .map(|(&bary_weight, &idx)| bary_weight * vertices[idx])
+                    .sum();
+                simplices.circumcenters.push(circumcenter);
             }
         }
 
@@ -443,7 +505,7 @@ pub fn tiny_mesh_2d() -> SimplicialComplex<2> {
         Vec2::new(0.5, 1.0),
         Vec2::new(-1.0, 0.0),
         Vec2::new(0.0, 0.0),
-        Vec2::new(0.0, 1.0),
+        Vec2::new(1.0, 0.0),
         Vec2::new(-0.5, -1.0),
         Vec2::new(0.5, -1.0),
     ];
@@ -551,6 +613,55 @@ mod tests {
             expected_2_boundaries, actual_2_boundaries,
             "incorrect 2-simplex boundaries"
         );
+
+        // circumcenters
+
+        #[rustfmt::skip]
+        let expected_1_centers: Vec<Vec2> = [
+            (0.0, 1.0),
+            (-0.75, 0.5), (-0.25, 0.5), (0.25, 0.5), (0.75, 0.5),
+            (-0.5, 0.0), (0.5, 0.0),
+            (-0.75, -0.5), (-0.25, -0.5), (0.25, -0.5), (0.75, -0.5),
+            (0.0, -1.0),
+        ]
+        .into_iter()
+        .map(|(x, y)| Vec2::new(x, y))
+        .collect();
+
+        let centers = &mesh.simplices[0].circumcenters;
+        assert_eq!(expected_1_centers.len(), centers.len());
+
+        for expected in expected_1_centers {
+            let found = centers
+                .iter()
+                .any(|actual| (expected - actual).magnitude_squared() <= f64::EPSILON);
+            assert!(
+                found,
+                "Expected 1-circumcenter {expected} not found in set {centers:?}"
+            )
+        }
+
+        #[rustfmt::skip]
+        let expected_2_centers: Vec<Vec2>  = [
+            (-0.5, 0.375), (0.0, 0.625), (0.5, 0.375),
+            (-0.5, -0.375), (0.0, -0.625), (0.5, -0.375),
+        ]
+        .into_iter()
+        .map(|(x, y)| Vec2::new(x, y))
+        .collect();
+
+        let centers = &mesh.simplices[1].circumcenters;
+        assert_eq!(expected_2_centers.len(), centers.len());
+
+        for expected in expected_2_centers {
+            let found = centers
+                .iter()
+                .any(|actual| (expected - actual).magnitude_squared() <= f64::EPSILON);
+            assert!(
+                found,
+                "Expected 2-circumcenter {expected} not found in set {centers:?}"
+            )
+        }
     }
 
     /// Lower-dimensional simplices are generated correctly
@@ -612,5 +723,82 @@ mod tests {
         // I'll trust the 2D test that these are correct for now.
         // should probably try to architect this test in a way
         // that doesn't explicitly list all indices
+
+        // circumcenters
+
+        #[rustfmt::skip]
+        let expected_1_centers: Vec<Vec3> = [
+            (-0.25, 0.5, 0.0), (0.25, 0.5, 0.0),
+            (0.0, 0.0, 0.0),
+            (-0.25, -0.5, 0.0), (0.25, -0.5, 0.0),
+            (0.0, 0.5, 0.5), (0.0, -0.5, 0.5),
+            (0.25, 0.0, 0.5), (-0.25, 0.0, 0.5),
+            (0.0, 0.5, -0.5), (0.0, -0.5, -0.5),
+            (0.25, 0.0, -0.5), (-0.25, 0.0, -0.5),
+        ]
+        .into_iter()
+        .map(|(x, y, z)| Vec3::new(x, y, z))
+        .collect();
+
+        let centers = &mesh.simplices[0].circumcenters;
+        assert_eq!(expected_1_centers.len(), centers.len());
+
+        for expected in expected_1_centers {
+            let found = centers
+                .iter()
+                .any(|actual| (expected - actual).magnitude_squared() <= f64::EPSILON);
+            assert!(
+                found,
+                "Expected 1-circumcenter {expected} not found in set {centers:?}"
+            )
+        }
+
+        #[rustfmt::skip]
+        let expected_2_centers: Vec<Vec3> = [
+            (0.0, 0.375, 0.0), (0.0, -0.375, 0.0),
+            (0.0, 0.0, 0.375), (0.0, 0.0, -0.375),
+            (0.08333, 0.41667, 0.41667), (0.08333, 0.41667, -0.41667),
+            (0.08333, -0.41667, 0.41667), (0.08333, -0.41667, -0.41667),
+            (-0.08333, -0.41667, 0.41667), (-0.08333, -0.41667, -0.41667),
+            (-0.08333, 0.41667, 0.41667), (-0.08333, 0.41667, -0.41667),
+        ]
+        .into_iter()
+        .map(|(x, y, z)| Vec3::new(x, y, z))
+        .collect();
+
+        let centers = &mesh.simplices[1].circumcenters;
+        assert_eq!(expected_2_centers.len(), centers.len());
+
+        for expected in expected_2_centers {
+            let found = centers
+                .iter()
+                .any(|actual| (expected - actual).magnitude_squared() <= 0.0001);
+            assert!(
+                found,
+                "Expected 2-circumcenter {expected} not found in set {centers:?}"
+            )
+        }
+
+        #[rustfmt::skip]
+        let expected_3_centers: Vec<Vec3> = [
+            (0.0, 0.375, 0.375), (0.0, 0.375, -0.375),
+            (0.0, -0.375, 0.375), (0.0, -0.375, -0.375),
+        ]
+        .into_iter()
+        .map(|(x, y, z)| Vec3::new(x, y, z))
+        .collect();
+
+        let centers = &mesh.simplices[2].circumcenters;
+        assert_eq!(expected_3_centers.len(), centers.len());
+
+        for expected in expected_3_centers {
+            let found = centers
+                .iter()
+                .any(|actual| (expected - actual).magnitude_squared() <= 0.0001);
+            assert!(
+                found,
+                "Expected 3-circumcenter {expected} not found in set {centers:?}"
+            )
+        }
     }
 }
