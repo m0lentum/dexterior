@@ -3,7 +3,7 @@
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
-use itertools::izip;
+use itertools::{iproduct, izip};
 
 /// A DEC complex where the primal cells are all simplices
 /// (points, line segments, triangles, tetrahedra etc).
@@ -24,6 +24,7 @@ struct SimplexCollection<const DIM: usize> {
     /// boundary simplices on the next level down
     boundaries: Vec<BoundarySimplex>,
     circumcenters: Vec<na::SVector<f64, DIM>>,
+    volumes: Vec<f64>,
 }
 
 impl<const DIM: usize> SimplexCollection<DIM> {
@@ -78,6 +79,10 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
                 ..Default::default()
             })
             .collect();
+
+        //
+        // compute sub-simplices
+        //
 
         // highest dimension simplices have the indices given as parameter
         simplices[MESH_DIM - 1].indices = indices;
@@ -178,7 +183,9 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
             }
         }
 
+        //
         // compute circumcenters
+        //
 
         // for 1-simplices (line segments) the circumcenter is simply the midpoint,
         // compute those as a special case for efficiency
@@ -234,6 +241,52 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
                     .map(|(&bary_weight, &idx)| bary_weight * vertices[idx])
                     .sum();
                 simplices.circumcenters.push(circumcenter);
+            }
+        }
+
+        //
+        // compute primal volumes
+        //
+
+        // again, simplified special case for line segments
+        let simplices_1 = &mut simplices[0];
+        let indices_1 = &simplices_1.indices;
+        for indices in indices_1.chunks_exact(2) {
+            let verts = [vertices[indices[0]], vertices[indices[1]]];
+            simplices_1.volumes.push((verts[1] - verts[0]).magnitude());
+        }
+
+        // for the rest, compute the volume as the determinant of a matrix
+        // vol = sqrt(det(V^T V)) / p!
+        // (see the PyDEC paper section 10.1)
+
+        // this could be done more efficiently
+        // by writing the determinant formula by hand and exploiting symmetry,
+        // but I'll do that after I get it working if I can be bothered to
+        for simplices in &mut simplices {
+            let indices = &simplices.indices;
+
+            let edge_count = simplices.simplex_size - 1;
+            // the term `p!` in the volume formula
+            let edge_count_factorial: usize = (1..=edge_count).product();
+            // again, reusing a matrix allocation.
+            // this is the square matrix V^T V which we compute manually
+            let mut det_mat = na::DMatrix::zeros(edge_count, edge_count);
+            // also reusing space for the edge vectors which are the columns of V
+            let mut edges: Vec<na::SVector<f64, MESH_DIM>> = vec![na::SVector::zeros(); edge_count];
+
+            for indices in indices.chunks_exact(simplices.simplex_size) {
+                // edges are vectors from the first vertex in the simplex to the other ones
+                for edge_idx in 0..edge_count {
+                    edges[edge_idx] = vertices[indices[edge_idx + 1]] - vertices[indices[0]];
+                }
+                // fill in the square matrix
+                for (row, col) in iproduct!(0..edge_count, 0..edge_count) {
+                    det_mat[(row, col)] = edges[row].dot(&edges[col]);
+                }
+                // compute volume from the square matrix
+                let vol = f64::sqrt(det_mat.determinant()) / edge_count_factorial as f64;
+                simplices.volumes.push(vol);
             }
         }
 
@@ -561,6 +614,7 @@ pub fn tiny_mesh_3d() -> SimplicialComplex<3> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::relative_eq;
 
     /// Lower-dimensional simplices and boundaries
     /// are generated correctly for a simple 2d mesh.
@@ -612,6 +666,39 @@ mod tests {
         assert_eq!(
             expected_2_boundaries, actual_2_boundaries,
             "incorrect 2-simplex boundaries"
+        );
+
+        // primal volumes
+
+        // all diagonal edges are the same length, as are all the horizontals
+        let diag = f64::sqrt(5.0) / 2.0;
+        let horiz = 1.0;
+        #[rustfmt::skip]
+        let expected_1_volumes = vec![
+            horiz, diag, diag,
+            diag, horiz,
+            horiz, diag,
+            diag, diag,
+            horiz, diag,
+            diag,
+        ];
+        let actual_1_volumes = &mesh.simplices[0].volumes;
+        let all_approx_eq =
+            izip!(&expected_1_volumes, actual_1_volumes).all(|(l, r)| relative_eq!(l, r));
+        assert!(
+            all_approx_eq,
+            "expected 1-volumes {expected_1_volumes:?}, got {actual_1_volumes:?}"
+        );
+
+        // all triangles are the same size (base 1, height 1)
+        // this would be a more interesting test if they had different volumes,
+        // but that would make other things harder
+        let tri_vol = 0.5;
+        let actual_2_volumes = &mesh.simplices[1].volumes;
+        let all_correct_vol = actual_2_volumes.iter().all(|&v| v == tri_vol);
+        assert!(
+            all_correct_vol,
+            "expected all 2-volumes {tri_vol}, got {actual_2_volumes:?}"
         );
 
         // circumcenters
@@ -723,6 +810,51 @@ mod tests {
         // I'll trust the 2D test that these are correct for now.
         // should probably try to architect this test in a way
         // that doesn't explicitly list all indices
+
+        // primal volumes
+
+        // most diagonals are this length
+        let diag = f64::sqrt(5.0) / 2.0;
+        use std::f64::consts::SQRT_2;
+        #[rustfmt::skip]
+        let expected_1_volumes = vec![
+            diag, diag, 1.0, SQRT_2, diag, diag,
+            diag, diag, SQRT_2,
+            SQRT_2, diag, diag,
+            SQRT_2,
+        ];
+        let actual_1_volumes = &mesh.simplices[0].volumes;
+        let all_approx_eq =
+            izip!(&expected_1_volumes, actual_1_volumes).all(|(l, r)| relative_eq!(l, r));
+        assert!(
+            all_approx_eq,
+            "expected 1-volumes {expected_1_volumes:?}, got {actual_1_volumes:?}"
+        );
+
+        // triangles on the outer boundary all have the same area,
+        // as do triangles inside of the mesh
+        let inner = 0.5;
+        // this one computed by hand on paper, just trust me bro
+        let outer = diag * (f64::sqrt(30.0) / 5.0) / 2.0;
+        let expected_2_volumes = vec![
+            inner, outer, outer, inner, inner, outer, outer, outer, outer, inner, outer, outer,
+        ];
+        let actual_2_volumes = &mesh.simplices[1].volumes;
+        let all_approx_eq =
+            izip!(&expected_2_volumes, actual_2_volumes,).all(|(l, r)| relative_eq!(l, r));
+        assert!(
+            all_approx_eq,
+            "expected 2-volumes {expected_2_volumes:?}, got {actual_2_volumes:?}"
+        );
+
+        // all tetrahedra in this one have the same volume
+        let tet_vol = 1.0 / 6.0;
+        let actual_3_volumes = &mesh.simplices[2].volumes;
+        let all_correct_vol = actual_3_volumes.iter().all(|&v| v == tet_vol);
+        assert!(
+            all_correct_vol,
+            "expected all 3-volumes {tet_vol}, got {actual_3_volumes:?}"
+        );
 
         // circumcenters
 
