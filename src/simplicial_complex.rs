@@ -35,16 +35,29 @@ impl<const DIM: usize> SimplexCollection<DIM> {
     }
 
     fn iter(&self) -> SimplexIter<'_> {
+        let index_iter = self.indices.chunks_exact(self.simplex_size);
+        // 0-simplices are a special case that does not have boundaries
+        let boundary_iter = if self.simplex_size == 1 {
+            self.boundaries.chunks_exact(0)
+        } else {
+            self.boundaries.chunks_exact(self.simplex_size)
+        };
         SimplexIter {
-            index_iter: self.indices.chunks_exact(self.simplex_size),
-            boundary_iter: self.boundaries.chunks_exact(self.simplex_size),
+            index_iter,
+            boundary_iter,
         }
     }
 
     fn iter_mut(&mut self) -> SimplexIterMut<'_> {
+        let index_iter = self.indices.chunks_exact_mut(self.simplex_size);
+        let boundary_iter = if self.simplex_size == 1 {
+            self.boundaries.chunks_exact_mut(0)
+        } else {
+            self.boundaries.chunks_exact_mut(self.simplex_size)
+        };
         SimplexIterMut {
-            index_iter: self.indices.chunks_exact_mut(self.simplex_size),
-            boundary_iter: self.boundaries.chunks_exact_mut(self.simplex_size),
+            index_iter,
+            boundary_iter,
         }
     }
 }
@@ -70,35 +83,39 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
     /// The indices are given as a flat array,
     /// where every `DIM + 1` indices correspond to one `DIM`-simplex.
     pub fn new(vertices: Vec<na::SVector<f64, MESH_DIM>>, indices: Vec<usize>) -> Self {
-        let mut simplices: Vec<SimplexCollection<MESH_DIM>> = (0..MESH_DIM)
+        // collection for every dimension of simplex, including 0
+        // (even though those are just the vertices),
+        // for unified storage and iteration
+        let mut simplices: Vec<SimplexCollection<MESH_DIM>> = (0..=MESH_DIM)
             .map(|i| SimplexCollection {
-                // 0-simplices are omitted from these collections,
-                // so the one at index 0 is the collection of 1-simplices,
-                // which have 2 points each
-                simplex_size: i + 2,
+                simplex_size: i + 1,
                 ..Default::default()
             })
             .collect();
+
+        // the collection of 0-simplices is just the vertices in order
+        simplices[0].indices = (0..vertices.len()).collect();
 
         //
         // compute sub-simplices
         //
 
         // highest dimension simplices have the indices given as parameter
-        simplices[MESH_DIM - 1].indices = indices;
+        simplices[MESH_DIM].indices = indices;
         // by convention, sort simplices to have their indices in ascending order.
         // this simplifies things by enabling a consistent way
         // to identify a simplex with its vertices
-        for simplex in simplices[MESH_DIM - 1]
-            .indices
-            .chunks_exact_mut(MESH_DIM + 1)
-        {
+        for simplex in simplices[MESH_DIM].indices.chunks_exact_mut(MESH_DIM + 1) {
             simplex.sort_unstable();
         }
 
-        // rest of the levels are inferred from boundaries of the top-level simplices
-        let mut level_iter = simplices.iter_mut().rev().peekable();
+        // rest of the levels (excluding 0-simplices, hence skip(1))
+        // are inferred from boundaries of the top-level simplices
+        let mut level_iter = simplices.iter_mut().skip(1).rev().peekable();
         while let Some(upper_simplices) = level_iter.next() {
+            if upper_simplices.simplex_size == 1 {
+                break;
+            }
             // preallocate space for boundary elements
             upper_simplices
                 .boundaries
@@ -190,7 +207,7 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
         // for 1-simplices (line segments) the circumcenter is simply the midpoint,
         // compute those as a special case for efficiency
 
-        let simplices_1 = &mut simplices[0];
+        let simplices_1 = &mut simplices[1];
         let indices_1 = &simplices_1.indices;
         for indices in indices_1.chunks_exact(2) {
             let verts = [vertices[indices[0]], vertices[indices[1]]];
@@ -200,7 +217,7 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
         // for the rest, solve for the circumcenter in barycentric coordinates
         // using the linear system from the PyDEC paper
         // (https://dl.acm.org/doi/pdf/10.1145/2382585.2382588, section 10.1)
-        for simplices in &mut simplices[1..] {
+        for simplices in &mut simplices[2..] {
             let indices = &simplices.indices;
             // dimension is simplex_size + 1 because there's an extra row
             // for normalizing the barycentric coordinates
@@ -249,7 +266,7 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
         //
 
         // again, simplified special case for line segments
-        let simplices_1 = &mut simplices[0];
+        let simplices_1 = &mut simplices[1];
         let indices_1 = &simplices_1.indices;
         for indices in indices_1.chunks_exact(2) {
             let verts = [vertices[indices[0]], vertices[indices[1]]];
@@ -263,7 +280,7 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
         // this could be done more efficiently
         // by writing the determinant formula by hand and exploiting symmetry,
         // but I'll do that after I get it working if I can be bothered to
-        for simplices in &mut simplices {
+        for simplices in &mut simplices[2..] {
             let indices = &simplices.indices;
 
             let edge_count = simplices.simplex_size - 1;
@@ -309,14 +326,7 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
     /// to allow usage in dynamic contexts (internal APIs)
     #[inline]
     fn simplex_count_dyn(&self, dim: usize) -> usize {
-        // TODO: consider a more unified structure
-        // where vertices also have a SimplexCollection
-        // to simplify addressing and remove a likely source of off-by-one errors
-        if dim == 0 {
-            self.vertices.len()
-        } else {
-            self.simplices[dim - 1].len()
-        }
+        self.simplices[dim].len()
     }
 
     /// Create a new cochain with a value of zero
@@ -376,7 +386,7 @@ impl<const MESH_DIM: usize> SimplicialComplex<MESH_DIM> {
         // no dimension check here, that is done by the generics in `d`
 
         // simplices of the output dimension
-        let simplices = &self.simplices[input_dim];
+        let simplices = &self.simplices[input_dim + 1];
 
         let row_count = simplices.len();
         let col_count = self.simplex_count_dyn(input_dim);
@@ -641,7 +651,7 @@ mod tests {
             4,6,
         ];
         assert_eq!(
-            expected_1_simplices, mesh.simplices[0].indices,
+            expected_1_simplices, mesh.simplices[1].indices,
             "incorrect 1-simplices"
         );
 
@@ -657,7 +667,7 @@ mod tests {
             (7, 1), (9, 1), (10, -1),
             (5, 1), (10, -1), (11, 1),
         ];
-        let actual_2_boundaries: Vec<(usize, isize)> = mesh.simplices[1]
+        let actual_2_boundaries: Vec<(usize, isize)> = mesh.simplices[2]
             .boundaries
             .iter()
             .map(|b| (b.index, b.orientation as isize))
@@ -682,7 +692,7 @@ mod tests {
             horiz, diag,
             diag,
         ];
-        let actual_1_volumes = &mesh.simplices[0].volumes;
+        let actual_1_volumes = &mesh.simplices[1].volumes;
         let all_approx_eq =
             izip!(&expected_1_volumes, actual_1_volumes).all(|(l, r)| relative_eq!(l, r));
         assert!(
@@ -694,7 +704,7 @@ mod tests {
         // this would be a more interesting test if they had different volumes,
         // but that would make other things harder
         let tri_vol = 0.5;
-        let actual_2_volumes = &mesh.simplices[1].volumes;
+        let actual_2_volumes = &mesh.simplices[2].volumes;
         let all_correct_vol = actual_2_volumes.iter().all(|&v| v == tri_vol);
         assert!(
             all_correct_vol,
@@ -715,7 +725,7 @@ mod tests {
         .map(|(x, y)| Vec2::new(x, y))
         .collect();
 
-        let centers = &mesh.simplices[0].circumcenters;
+        let centers = &mesh.simplices[1].circumcenters;
         assert_eq!(expected_1_centers.len(), centers.len());
 
         for expected in expected_1_centers {
@@ -737,7 +747,7 @@ mod tests {
         .map(|(x, y)| Vec2::new(x, y))
         .collect();
 
-        let centers = &mesh.simplices[1].circumcenters;
+        let centers = &mesh.simplices[2].circumcenters;
         assert_eq!(expected_2_centers.len(), centers.len());
 
         for expected in expected_2_centers {
@@ -769,7 +779,7 @@ mod tests {
             2,3,5, 1,3,5,
         ];
         assert_eq!(
-            expected_2_simplices, mesh.simplices[1].indices,
+            expected_2_simplices, mesh.simplices[2].indices,
             "incorrect 1-simplices"
         );
 
@@ -781,7 +791,7 @@ mod tests {
             3,5,
         ];
         assert_eq!(
-            expected_1_simplices, mesh.simplices[0].indices,
+            expected_1_simplices, mesh.simplices[1].indices,
             "incorrect 2-simplices"
         );
 
@@ -794,7 +804,7 @@ mod tests {
             (0, 1), (7, 1), (8, -1), (9, -1),
             (4, 1), (9, -1), (10, 1), (11, -1),
         ];
-        let actual_3_boundaries: Vec<(usize, isize)> = mesh.simplices[2]
+        let actual_3_boundaries: Vec<(usize, isize)> = mesh.simplices[3]
             .boundaries
             .iter()
             .map(|b| (b.index, b.orientation as isize))
@@ -823,7 +833,7 @@ mod tests {
             SQRT_2, diag, diag,
             SQRT_2,
         ];
-        let actual_1_volumes = &mesh.simplices[0].volumes;
+        let actual_1_volumes = &mesh.simplices[1].volumes;
         let all_approx_eq =
             izip!(&expected_1_volumes, actual_1_volumes).all(|(l, r)| relative_eq!(l, r));
         assert!(
@@ -839,7 +849,7 @@ mod tests {
         let expected_2_volumes = vec![
             inner, outer, outer, inner, inner, outer, outer, outer, outer, inner, outer, outer,
         ];
-        let actual_2_volumes = &mesh.simplices[1].volumes;
+        let actual_2_volumes = &mesh.simplices[2].volumes;
         let all_approx_eq =
             izip!(&expected_2_volumes, actual_2_volumes,).all(|(l, r)| relative_eq!(l, r));
         assert!(
@@ -849,7 +859,7 @@ mod tests {
 
         // all tetrahedra in this one have the same volume
         let tet_vol = 1.0 / 6.0;
-        let actual_3_volumes = &mesh.simplices[2].volumes;
+        let actual_3_volumes = &mesh.simplices[3].volumes;
         let all_correct_vol = actual_3_volumes.iter().all(|&v| v == tet_vol);
         assert!(
             all_correct_vol,
@@ -872,7 +882,7 @@ mod tests {
         .map(|(x, y, z)| Vec3::new(x, y, z))
         .collect();
 
-        let centers = &mesh.simplices[0].circumcenters;
+        let centers = &mesh.simplices[1].circumcenters;
         assert_eq!(expected_1_centers.len(), centers.len());
 
         for expected in expected_1_centers {
@@ -898,11 +908,11 @@ mod tests {
         .map(|(x, y, z)| Vec3::new(x, y, z))
         .collect();
 
-        let centers = &mesh.simplices[1].circumcenters;
-        assert_eq!(expected_2_centers.len(), centers.len());
+        let actual_2_centers = &mesh.simplices[2].circumcenters;
+        assert_eq!(expected_2_centers.len(), actual_2_centers.len());
 
         for expected in expected_2_centers {
-            let found = centers
+            let found = actual_2_centers
                 .iter()
                 .any(|actual| (expected - actual).magnitude_squared() <= 0.0001);
             assert!(
@@ -920,11 +930,11 @@ mod tests {
         .map(|(x, y, z)| Vec3::new(x, y, z))
         .collect();
 
-        let centers = &mesh.simplices[2].circumcenters;
-        assert_eq!(expected_3_centers.len(), centers.len());
+        let actual_3_centers = &mesh.simplices[3].circumcenters;
+        assert_eq!(expected_3_centers.len(), actual_3_centers.len());
 
         for expected in expected_3_centers {
-            let found = centers
+            let found = actual_3_centers
                 .iter()
                 .any(|actual| (expected - actual).magnitude_squared() <= 0.0001);
             assert!(
