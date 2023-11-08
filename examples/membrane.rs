@@ -21,7 +21,7 @@ struct Ops {
 
 fn main() {
     // TODO: generate a mesh with desired dimensions
-    let mesh = dex::simplicial_complex::tiny_mesh_2d();
+    let mesh = dex::mesh::tiny_mesh_2d();
 
     // TODO: pick dt based on minimum edge length
     let dt = 0.17;

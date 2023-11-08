@@ -3,7 +3,7 @@
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
-use crate::{cochain::CochainImpl, simplicial_complex::MeshPrimality};
+use crate::{cochain::CochainImpl, mesh::MeshPrimality};
 
 /// Trait enabling operator composition checked for compatibility at compile time.
 pub trait Operator {
@@ -29,7 +29,7 @@ pub trait OperatorInput {
 
 /// The exterior derivative, also known as the coboundary operator.
 ///
-/// This operator is constructed from a mesh with [`SimplicialComplex::d`][crate::SimplicialComplex::d].
+/// This operator is constructed from a mesh with [`SimplicialMesh::d`][crate::SimplicialMesh::d].
 /// See its documentation for details.
 #[derive(Clone, Debug)]
 pub struct ExteriorDerivative<const DIM: usize, Primality> {
@@ -54,7 +54,7 @@ where
 }
 
 impl<const DIM: usize, Primality> ExteriorDerivative<DIM, Primality> {
-    /// Constructor exposed to crate only, used in `SimplicialComplex::d`.
+    /// Constructor exposed to crate only, used in `SimplicialMesh::d`.
     pub(crate) fn new(mat: nas::CsrMatrix<f64>) -> Self {
         Self {
             mat,
@@ -71,7 +71,7 @@ impl<const DIM: usize, Primality> PartialEq for ExteriorDerivative<DIM, Primalit
 
 /// A diagonal Hodge star operator.
 ///
-/// This operator is constructed from a mesh with [`SimplicialComplex::star`][crate::SimplicialComplex::star].
+/// This operator is constructed from a mesh with [`SimplicialMesh::star`][crate::SimplicialMesh::star].
 /// See its documentation for details.
 #[derive(Clone, Debug)]
 pub struct HodgeStar<const DIM: usize, const MESH_DIM: usize, Primality> {
@@ -115,7 +115,7 @@ where
 }
 
 impl<const DIM: usize, const MESH_DIM: usize, Primality> HodgeStar<DIM, MESH_DIM, Primality> {
-    /// Constructor exposed to crate only, used in `SimplicialComplex::star`.
+    /// Constructor exposed to crate only, used in `SimplicialMesh::star`.
     pub(crate) fn new(diagonal: na::DVector<f64>) -> Self {
         Self {
             diagonal,
@@ -136,7 +136,7 @@ impl<const DIM: usize, const MESH_DIM: usize, Primality> PartialEq
 ///
 /// Operator composition can be done using multiplication syntax:
 /// ```
-/// # use dexterior::{Primal, ComposedOperator, simplicial_complex::tiny_mesh_2d};
+/// # use dexterior::{Primal, ComposedOperator, mesh::tiny_mesh_2d};
 /// # let mesh = tiny_mesh_2d();
 /// let op: ComposedOperator<_, _> = mesh.star() * mesh.d::<1, Primal>();
 /// ```
@@ -174,7 +174,7 @@ impl<L, R> PartialEq for ComposedOperator<L, R> {
 ///
 /// This can also be done with multiplication syntax:
 /// ```
-/// # use dexterior::{Primal, operator::compose, simplicial_complex::tiny_mesh_2d};
+/// # use dexterior::{Primal, operator::compose, mesh::tiny_mesh_2d};
 /// # let mesh = tiny_mesh_2d();
 /// assert_eq!(
 ///     compose(mesh.star::<2, Primal>(), mesh.d::<1, Primal>()),
@@ -356,7 +356,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simplicial_complex::{tiny_mesh_2d, Dual, Primal};
+    use crate::mesh::{tiny_mesh_2d, Dual, Primal};
 
     #[test]
     fn exterior_derivative_works_in_2d() {
@@ -375,7 +375,7 @@ mod tests {
         // let c2 = d0.apply(&c1);
 
         // this corresponds to `expected_1_simplices`
-        // in `crate::simplicial_complex::tests::tiny_2d_mesh_is_correct`
+        // in `crate::mesh::tests::tiny_2d_mesh_is_correct`
         #[rustfmt::skip]
         let expected_c1 = na::DVector::from_vec(vec![
             3.0 - 2.0, 3.0 - 0.0, 2.0 - 0.0,

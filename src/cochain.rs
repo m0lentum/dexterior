@@ -6,8 +6,8 @@ use nalgebra as na;
 /// a set of `k`-dimensional cells on a mesh.
 ///
 /// Cochains can be constructed using the following methods
-/// on [`SimplicialComplex`][crate::SimplicialComplex]:
-/// - [`new_zero_cochain`][crate::SimplicialComplex::new_zero_cochain]
+/// on [`SimplicialMesh`][crate::SimplicialMesh]:
+/// - [`new_zero_cochain`][crate::SimplicialMesh::new_zero_cochain]
 pub type Cochain<const DIM: usize, Primality> = CochainImpl<na::Const<DIM>, Primality>;
 
 /// The cochain type used internally by Dexterior.
@@ -32,7 +32,7 @@ impl<Dimension, Primality> CochainImpl<Dimension, Primality> {
     // constructors only exposed to crate
     // because cochains are always based on a mesh
     // and it doesn't make sense for a user to create them directly;
-    // public constructors are methods on SimplicialComplex
+    // public constructors are methods on SimplicialMesh
 
     #[inline]
     pub(crate) fn from_values(values: na::DVector<f64>) -> Self {

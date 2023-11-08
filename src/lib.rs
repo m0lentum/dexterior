@@ -3,7 +3,7 @@
 Dexterior provides building blocks
 for the discretization of partial differential equations
 using Discrete Exterior Calculus (DEC).
-A simplicial mesh of any dimension can be processed into a DEC primal/dual complex pair,
+A simplicial mesh of any dimension can be processed into a DEC primal/dual mesh pair,
 on which cochains and operators can be defined.
 To the extent possible, the existence and interactions of operators and cochains
 is checked at compile-time to ensure correct use.
@@ -24,10 +24,10 @@ see the following texts:
 - Desbrun, M., Kanso, E. & Tong, Y. (2006). [Discrete differential forms
   for Computational Modeling](https://dl.acm.org/doi/pdf/10.1145/1185657.1185665)
 
-# Constructing a complex
+# Constructing a mesh
 
 The core of a DEC discretization is the computation mesh,
-represented in the [`SimplicialComplex`][crate::SimplicialComplex] type.
+represented in the [`SimplicialMesh`][crate::SimplicialMesh] type.
 The type has one generic parameter representing the dimension of its embedding space
 and consequently the dimension of its highest-dimensional set of simplices.
 Currently (as this is a heavy work in progress),
@@ -35,7 +35,7 @@ you can only create one by supplying a list of raw vertices and indices.
 The plan is to support meshes built with [gmsh](http://gmsh.info/)
 and maybe eventually include a purpose-built mesh generator in Dexterior itself.
 
-## The dual complex
+## The dual mesh
 
 TODO: explain how the dual relates to the primal
 
@@ -43,23 +43,23 @@ TODO: explain how the dual relates to the primal
 
 Simulation variables in DEC-based simulations are expressed as cochains,
 which associate a value with every cell of a specific dimension
-in either the primal or the dual complex.
-In this library, both the dimension and the association with the primal or dual complex
-are expressed via generic parameters on [`SimplicialComplex`][crate::SimplicialComplex] methods.
-Dimension is expressed as a `usize` constant and the type of associated complex
+in either the primal or the dual mesh.
+In this library, both the dimension and the association with the primal or dual mesh
+are expressed via generic parameters on [`SimplicialMesh`][crate::SimplicialMesh] methods.
+Dimension is expressed as a `usize` constant and the type of associated mesh
 as either [`Primal`][crate::Primal] or [`Dual`][crate::Dual].
 
 Say we have a two-dimensional mesh,
 ```
-# use dexterior::{SimplicialComplex, simplicial_complex::tiny_mesh_2d as some_mesh};
-let mesh: SimplicialComplex<2> = some_mesh();
+# use dexterior::{SimplicialMesh, mesh::tiny_mesh_2d as some_mesh};
+let mesh: SimplicialMesh<2> = some_mesh();
 ```
 The following code constructs two cochains,
 the first associated with primal 1-simplices
 and the second with dual 0-simplices (i.e. vertices), on this mesh,
 with zeroes for all elements:
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Dual};
+# use dexterior::{mesh::tiny_mesh_2d, Primal, Dual};
 # let mesh = tiny_mesh_2d();
 let primal_1_cochain = mesh.new_zero_cochain::<1, Primal>();
 let dual_0_cochain = mesh.new_zero_cochain::<0, Dual>();
@@ -68,18 +68,18 @@ let dual_0_cochain = mesh.new_zero_cochain::<0, Dual>();
 ## Operators
 
 The two most important operators in DEC are the exterior derivative and Hodge star,
-which are constructed from a [`SimplicialComplex`][crate::SimplicialComplex].
+which are constructed from a [`SimplicialMesh`][crate::SimplicialMesh].
 They use generics similar to cochains to ensure compatible inputs and outputs.
 
 ### Exterior derivative
 
 The `k`-dimensional exterior derivative takes a `k`-cochain
-on either the primal or dual complex
-and produces a `k+1`-cochain on the same complex.
-Exterior derivative operators are constructed with [`SimplicialComplex::d`][crate::SimplicialComplex::d];
+on either the primal or dual mesh
+and produces a `k+1`-cochain on the same mesh.
+Exterior derivative operators are constructed with [`SimplicialMesh::d`][crate::SimplicialMesh::d];
 for example,
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_2d, Primal};
+# use dexterior::{mesh::tiny_mesh_2d, Primal};
 # let mesh = tiny_mesh_2d();
 let primal_d_1 = mesh.d::<1, Primal>();
 ```
@@ -87,7 +87,7 @@ constructs a primal `1`-dimensional exterior derivative.
 To apply it to a primal 1-cochain,
 we can use multiplication syntax:
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Cochain};
+# use dexterior::{mesh::tiny_mesh_2d, Primal, Cochain};
 # let mesh = tiny_mesh_2d();
 # let primal_d_1 = mesh.d::<1, Primal>();
 # let primal_1_cochain = mesh.new_zero_cochain::<1, Primal>();
@@ -96,11 +96,11 @@ let result: Cochain<2, Primal> = &primal_d_1 * &primal_1_cochain;
 
 ### Hodge star
 
-The Hodge star maps cochains from the primal complex to the dual and vice versa.
-Hodge star operators are constructed with [`SimplicialComplex::star`][crate::SimplicialComplex::star];
+The Hodge star maps cochains from the primal mesh to the dual and vice versa.
+Hodge star operators are constructed with [`SimplicialMesh::star`][crate::SimplicialMesh::star];
 for example,
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_2d, Primal};
+# use dexterior::{mesh::tiny_mesh_2d, Primal};
 # let mesh = tiny_mesh_2d();
 let primal_star_1 = mesh.star::<1, Primal>();
 ```
@@ -110,8 +110,8 @@ Its inverse is the dual `n-1`-dimensional star,
 and applying both in succession is equivalent to the identity operation.
 Let us illustrate this with a 3D mesh to make the dimensions more clear:
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_3d as some_mesh, SimplicialComplex, Primal, Dual};
-let mesh: SimplicialComplex<3> = some_mesh();
+# use dexterior::{mesh::tiny_mesh_3d as some_mesh, SimplicialMesh, Primal, Dual};
+let mesh: SimplicialMesh<3> = some_mesh();
 let primal_1_cochain = mesh.new_zero_cochain::<1, Primal>();
 assert_eq!(
     mesh.star::<2, Dual>() * mesh.star::<1, Primal>() * &primal_1_cochain,
@@ -127,7 +127,7 @@ Rather than operating on a cochain multiple times in succession with all these o
 it is desirable to first compose the operators into a single matrix.
 This can be done with multiplication syntax:
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, Dual, ComposedOperator};
+# use dexterior::{mesh::tiny_mesh_3d, Primal, Dual, ComposedOperator};
 # let mesh = tiny_mesh_3d();
 let divergence: ComposedOperator<_, _>
     = mesh.star::<3, Dual>()
@@ -137,7 +137,7 @@ let divergence: ComposedOperator<_, _>
 The resulting type is an operator that takes the rightmost operator's input
 and produces the leftmost operator's output:
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, Dual, Cochain};
+# use dexterior::{mesh::tiny_mesh_3d, Primal, Dual, Cochain};
 # let mesh = tiny_mesh_3d();
 # let divergence = mesh.star() * mesh.d() * mesh.star();
 let input: Cochain<1, Primal> = mesh.new_zero_cochain();
@@ -156,17 +156,17 @@ This is achieved via the [`Operator`][crate::operator::Operator] trait,
 which tracks the input and output cochain types of an operator.
 For example, all of the following would fail to compile:
 ```compile_fail
-# use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Dual};
+# use dexterior::{mesh::tiny_mesh_2d, Primal, Dual};
 # let mesh = tiny_mesh_2d();
 mesh.d::<1, Primal>() * &mesh.new_zero_cochain::<2, Primal>();
 ```
 ```compile_fail
-# use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Dual};
+# use dexterior::{mesh::tiny_mesh_2d, Primal, Dual};
 # let mesh = tiny_mesh_2d();
 mesh.star::<2, Dual>() * &mesh.new_zero_cochain::<2, Primal>();
 ```
 ```compile_fail
-# use dexterior::{simplicial_complex::tiny_mesh_2d, Primal, Dual};
+# use dexterior::{mesh::tiny_mesh_2d, Primal, Dual};
 # let mesh = tiny_mesh_2d();
 mesh.star::<0, Dual>() * &mesh.d::<1, Primal>();
 ```
@@ -174,7 +174,7 @@ mesh.star::<0, Dual>() * &mesh.d::<1, Primal>();
 Thanks to these constraints, the compiler can infer the types of most generic expressions.
 The earlier divergence example could be written like this:
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal};
+# use dexterior::{mesh::tiny_mesh_3d, Primal};
 # let mesh = tiny_mesh_3d();
 let divergence = mesh.star() * mesh.d() * mesh.star::<1, Primal>();
 ```
@@ -182,7 +182,7 @@ In general, it's enough to give the type of one operator or cochain
 and the rest will follow.
 If you apply the divergence to a cochain in the same function,
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal};
+# use dexterior::{mesh::tiny_mesh_3d, Primal};
 # let mesh = tiny_mesh_3d();
 let divergence = mesh.star() * mesh.d() * mesh.star();
 let input = mesh.new_zero_cochain::<1, Primal>();
@@ -197,17 +197,17 @@ or exterior derivatives whose output dimension would be higher than the mesh's
 (i.e. the maximum dimension for `d` is `n-1`).
 For a 2D mesh, none of the following would compile:
 ```compile_fail
-# use dexterior::{Primal, simplicial_complex::tiny_mesh_2d};
+# use dexterior::{Primal, mesh::tiny_mesh_2d};
 # let mesh = tiny_mesh_2d();
 let c = mesh.new_zero_cochain::<3, Primal>();
 ```
 ```compile_fail
-# use dexterior::{Primal, simplicial_complex::tiny_mesh_2d};
+# use dexterior::{Primal, mesh::tiny_mesh_2d};
 # let mesh = tiny_mesh_2d();
 let star = mesh.star::<3, Primal>();
 ```
 ```compile_fail
-# use dexterior::{Primal, simplicial_complex::tiny_mesh_2d};
+# use dexterior::{Primal, mesh::tiny_mesh_2d};
 # let mesh = tiny_mesh_2d();
 let d = mesh.d::<2, Primal>();
 ```
@@ -224,7 +224,7 @@ A more problematic downside to this approach to operator types
 is that composition results in extremely verbose types.
 The type of the divergence operator, for instance, is
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, Dual, ComposedOperator, HodgeStar, ExteriorDerivative};
+# use dexterior::{mesh::tiny_mesh_3d, Primal, Dual, ComposedOperator, HodgeStar, ExteriorDerivative};
 # let mesh = tiny_mesh_3d();
 let divergence: ComposedOperator<
     ComposedOperator<HodgeStar<3, 3, Dual>, ExteriorDerivative<2, Dual>>,
@@ -235,7 +235,7 @@ let divergence: ComposedOperator<
 If you need to store an operator in a struct,
 an alternative to writing all this out is to store it as a trait object:
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, Operator, Cochain};
+# use dexterior::{mesh::tiny_mesh_3d, Primal, Operator, Cochain};
 # let mesh = tiny_mesh_3d();
 struct MyOperators {
     divergence: Box<dyn Operator<
@@ -256,7 +256,7 @@ by converting your operators into [`nalgebra_sparse::CsrMatrix`][nalgebra_sparse
 which can be multiplied with the [`nalgebra::DVector`][nalgebra::DVector]
 stored in the `values` field of [`Cochain`][crate::Cochain]:
 ```
-# use dexterior::{simplicial_complex::tiny_mesh_3d, Primal, Cochain};
+# use dexterior::{mesh::tiny_mesh_3d, Primal, Cochain};
 # use nalgebra_sparse::CsrMatrix;
 # let mesh = tiny_mesh_3d();
 struct MyOperators {
@@ -277,11 +277,9 @@ let output: nalgebra::DVector<f64> = &ops.divergence * &input;
 
 #![warn(missing_docs)]
 
-pub mod simplicial_complex;
+pub mod mesh;
 #[doc(inline)]
-pub use simplicial_complex::{
-    Dual, Primal, SimplexIter, SimplexView, SimplexViewMut, SimplicialComplex,
-};
+pub use mesh::{Dual, Primal, SimplexIter, SimplexView, SimplexViewMut, SimplicialMesh};
 
 pub mod cochain;
 #[doc(inline)]
