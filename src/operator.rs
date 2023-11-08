@@ -1,5 +1,6 @@
 //! Composable operators for doing math on [`Cochain`][crate::Cochain]s.
 
+use itertools::izip;
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
@@ -93,12 +94,10 @@ where
 
     fn apply(&self, input: &Self::Input) -> Self::Output {
         let input = input.values();
-        let mut ret = na::DVector::zeros(input.len());
-        for ((&in_val, &diag_val), ret_val) in
-            input.iter().zip(self.diagonal.iter()).zip(ret.iter_mut())
-        {
-            *ret_val = in_val * diag_val;
-        }
+        let ret = na::DVector::from_iterator(
+            input.len(),
+            izip!(self.diagonal.iter(), input.iter()).map(|(&diag_val, &in_val)| diag_val * in_val),
+        );
         Self::Output::from_values(ret)
     }
 
