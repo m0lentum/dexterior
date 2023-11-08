@@ -408,19 +408,4 @@ mod tests {
             "dual d_1 should be the transpose of primal d_0",
         );
     }
-
-    /// Operators can be chained (and have their types inferred correctly).
-    /// This one is mostly about types and syntax,
-    /// so this compiling is a success in itself.
-    ///
-    /// TODO: move this into a doctest somewhere
-    #[test]
-    fn operator_composition_works() {
-        let mesh = tiny_mesh_2d();
-
-        let c1 = mesh.new_zero_cochain::<1, Primal>();
-        let complicated_op =
-            mesh.star() * mesh.d() * mesh.d() * mesh.star() * mesh.d() * mesh.star();
-        let _res: CochainImpl<na::Const<0>, Dual> = complicated_op * &c1;
-    }
 }
