@@ -13,6 +13,7 @@ pub use mesh_construction::{tiny_mesh_2d, tiny_mesh_3d};
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
+use itertools::izip;
 use std::rc::Rc;
 
 /// A DEC mesh where the primal cells are all simplices
@@ -175,7 +176,6 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     }
 
     /// Construct a Hodge star operator.
-    /// Not implemented correctly yet, currently just here to test APIs and operator composition.
     ///
     /// See the [module-level docs][crate#operators] for usage information.
     pub fn star<const DIM: usize, Primality>(&self) -> crate::HodgeStar<DIM, MESH_DIM, Primality>
@@ -187,9 +187,14 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             <Primality::PrimalDim<na::Const<DIM>, na::Const<MESH_DIM>> as na::DimName>::USIZE;
         let simplex_count = self.simplex_count_dyn(primal_dim);
 
-        // TODO: replace this with the construction of an actual Hodge star
-
-        let diag = na::DVector::repeat(simplex_count, 2.0);
+        let diag = na::DVector::from_iterator(
+            simplex_count,
+            izip!(
+                &self.simplices[primal_dim].volumes,
+                &self.simplices[primal_dim].dual_volumes
+            )
+            .map(|(primal_vol, dual_vol)| *primal_vol / *dual_vol),
+        );
 
         crate::HodgeStar::new(Primality::convert_star_from_primal(diag))
     }
