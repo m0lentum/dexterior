@@ -29,13 +29,22 @@ pub struct SimplicialMesh<const DIM: usize> {
 }
 
 #[derive(Clone, Debug)]
-struct SimplexCollection<const DIM: usize> {
+pub struct SimplexCollection<const DIM: usize> {
     /// points per simplex in the storage Vec
     simplex_size: usize,
     /// indices stored in a flat Vec to avoid generics for dimension
     indices: Vec<usize>,
-    /// boundary simplices on the next level down
-    boundaries: Vec<BoundarySimplex>,
+    /// matrix where the rows correspond to DIM-simplices
+    /// and the columns to (DIM-1) simplices.
+    /// this matrix is the coboundary operator for (DIM-1) simplices,
+    /// but it's stored with DIM-simplices
+    /// because its rows can be efficiently used to navigate to boundary simplices.
+    boundary_map: nas::CsrMatrix<Orientation>,
+    /// transpose of the DIM+1-dimensional collection's `boundary_map`,
+    /// stored separately for efficient access.
+    /// the rows in this correspond to DIM-simplices again,
+    /// and the columns to DIM+1-simplices.
+    coboundary_map: nas::CsrMatrix<Orientation>,
     /// circumcenters Rc'd so that 0-simplices
     /// can have the mesh vertices here without duplicating data
     circumcenters: Rc<[na::SVector<f64, DIM>]>,
@@ -52,7 +61,8 @@ impl<const DIM: usize> Default for SimplexCollection<DIM> {
         Self {
             simplex_size: 0,
             indices: Vec::new(),
-            boundaries: Vec::new(),
+            boundary_map: nas::CsrMatrix::zeros(0, 0),
+            coboundary_map: nas::CsrMatrix::zeros(0, 0),
             circumcenters: Rc::from([]),
             volumes: Vec::new(),
             dual_volumes: Vec::new(),
@@ -72,40 +82,13 @@ impl<const DIM: usize> SimplexCollection<DIM> {
         let idx_range = start_idx..start_idx + self.simplex_size;
         SimplexView {
             indices: &self.indices[idx_range.clone()],
-            boundaries: if self.simplex_size == 1 {
-                &[]
-            } else {
-                &self.boundaries[idx_range.clone()]
-            },
-        }
-    }
-
-    fn iter(&self) -> SimplexIter<'_> {
-        SimplexIter {
-            index_iter: self.indices.chunks_exact(self.simplex_size),
-            // 0-simplices are a special case that does not have boundaries
-            boundary_iter: if self.simplex_size == 1 {
-                self.boundaries.chunks_exact(0)
-            } else {
-                self.boundaries.chunks_exact(self.simplex_size)
-            },
-        }
-    }
-
-    fn iter_mut(&mut self) -> SimplexIterMut<'_> {
-        SimplexIterMut {
-            index_iter: self.indices.chunks_exact_mut(self.simplex_size),
-            boundary_iter: if self.simplex_size == 1 {
-                self.boundaries.chunks_exact_mut(0)
-            } else {
-                self.boundaries.chunks_exact_mut(self.simplex_size)
-            },
+            boundaries: self.boundary_map.row(idx),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct BoundarySimplex {
+pub struct BoundarySimplex {
     /// index of the simplex in the storage
     index: usize,
     /// orientation of the simplex relative to the simplex it bounds
@@ -113,7 +96,7 @@ struct BoundarySimplex {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Orientation {
+pub enum Orientation {
     #[default]
     Forward = 1,
     Backward = -1,
@@ -166,13 +149,25 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     pub fn d<const DIM: usize, Primality>(&self) -> crate::ExteriorDerivative<DIM, Primality>
     where
         na::Const<DIM>: na::DimNameAdd<na::U1>,
-        na::Const<MESH_DIM>: na::DimNameSub<na::DimNameSum<na::Const<DIM>, na::U1>>,
+        na::Const<MESH_DIM>:
+            na::DimNameSub<na::DimNameSum<na::Const<DIM>, na::U1>> + na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,
     {
-        let in_dim =
-            <Primality::DInputPrimalDim<na::Const<DIM>, na::Const<MESH_DIM>> as na::DimName>::USIZE;
-        let mat = Primality::convert_d_from_primal(self.build_coboundary_matrix(in_dim));
-        crate::ExteriorDerivative::new(mat)
+        let orientation_mat = Primality::select_d_matrix::<DIM, MESH_DIM>(&self.simplices);
+        // build the same matrix
+        // but with Orientations converted to floats for easy multiplication.
+        // technically we could reference `orientation_mat` directly in the operator,
+        // but that would require introducing lifetimes to operators which gets annoying quickly
+        let float_mat = nas::CsrMatrix::try_from_pattern_and_values(
+            orientation_mat.pattern().clone(),
+            orientation_mat
+                .values()
+                .iter()
+                .map(|o| *o as isize as f64)
+                .collect(),
+        )
+        .unwrap();
+        crate::ExteriorDerivative::new(float_mat)
     }
 
     /// Construct a Hodge star operator.
@@ -197,33 +192,6 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         );
 
         crate::HodgeStar::new(Primality::convert_star_from_primal(diag))
-    }
-
-    /// Constructs a coboundary matrix taking primal `dim`-cochains
-    /// to primal `dim+1`-cochains.
-    /// Internal API used by `Self::d`.
-    fn build_coboundary_matrix(&self, input_dim: usize) -> nas::CsrMatrix<f64> {
-        // no dimension check here, that is done by the generics in `d`
-
-        // simplices of the output dimension
-        let simplices = &self.simplices[input_dim + 1];
-
-        let row_count = simplices.len();
-        let col_count = self.simplex_count_dyn(input_dim);
-
-        // each row has the same number of nonzero elements,
-        // so it's simple to construct the sparsity pattern of the matrix
-        let row_offsets: Vec<usize> = (0..=row_count)
-            .map(|i| i * simplices.simplex_size)
-            .collect();
-        let (col_indices, values): (Vec<usize>, Vec<f64>) = simplices
-            .boundaries
-            .iter()
-            .map(|b| (b.index, b.orientation as isize as f64))
-            .unzip();
-
-        nas::CsrMatrix::try_from_csr_data(row_count, col_count, row_offsets, col_indices, values)
-            .expect("Error in matrix construction. This is a bug in dexterior")
     }
 }
 
@@ -255,19 +223,16 @@ pub trait MeshPrimality {
     /// of a dual cochain at compile time.
     #[doc(hidden)]
     type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>>: na::DimName;
-    /// GAT that allows computing the dimension of the primal exterior derivative
-    /// that gets transposed into a dual one.
-    #[doc(hidden)]
-    type DInputPrimalDim<
-        Dim: na::DimNameAdd<na::U1>,
-        MeshDim: na::DimName + na::DimNameSub<na::DimNameSum<Dim, na::U1>>,
-    >: na::DimName;
 
-    /// Conversion procedure for exterior derivative constructed for the primal mesh.
-    /// The exterior derivative on the dual mesh is the transpose
-    /// of the one on the primal mesh.
+    /// All exterior derivative matrices are already computed at mesh creation time.
+    /// This method finds the correct matrix for the given primality and dimension.
     #[doc(hidden)]
-    fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64>;
+    fn select_d_matrix<const INPUT_DIM: usize, const MESH_DIM: usize>(
+        simplices: &[SimplexCollection<MESH_DIM>],
+    ) -> &nas::CsrMatrix<Orientation>
+    where
+        na::Const<INPUT_DIM>: na::DimName,
+        na::Const<MESH_DIM>: na::DimName + na::DimNameSub<na::Const<INPUT_DIM>>;
 
     /// Conversion procedure for Hodge star constructed for the primal mesh.
     /// The star on the dual mesh is the inverse of the one on the primal mesh.
@@ -278,14 +243,17 @@ pub trait MeshPrimality {
 impl MeshPrimality for Primal {
     type Opposite = Dual;
     type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>> = Dim;
-    type DInputPrimalDim<
-        Dim: na::DimNameAdd<na::U1>,
-        MeshDim: na::DimName + na::DimNameSub<na::DimNameSum<Dim, na::U1>>,
-    > = Dim;
 
-    fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64> {
-        primal_d
+    fn select_d_matrix<const INPUT_DIM: usize, const MESH_DIM: usize>(
+        simplices: &[SimplexCollection<MESH_DIM>],
+    ) -> &nas::CsrMatrix<Orientation>
+    where
+        na::Const<INPUT_DIM>: na::DimName,
+        na::Const<MESH_DIM>: na::DimName + na::DimNameSub<na::Const<INPUT_DIM>>,
+    {
+        &simplices[INPUT_DIM + 1].boundary_map
     }
+
     fn convert_star_from_primal(primal_diag: na::DVector<f64>) -> na::DVector<f64> {
         primal_diag
     }
@@ -295,14 +263,21 @@ impl MeshPrimality for Dual {
     type Opposite = Primal;
     type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>> =
         na::DimNameDiff<MeshDim, Dim>;
-    type DInputPrimalDim<
-        Dim: na::DimNameAdd<na::U1>,
-        MeshDim: na::DimName + na::DimNameSub<na::DimNameSum<Dim, na::U1>>,
-    > = na::DimNameDiff<MeshDim, na::DimNameSum<Dim, na::U1>>;
 
-    fn convert_d_from_primal(primal_d: nas::CsrMatrix<f64>) -> nas::CsrMatrix<f64> {
-        primal_d.transpose()
+    fn select_d_matrix<const INPUT_DIM: usize, const MESH_DIM: usize>(
+        simplices: &[SimplexCollection<MESH_DIM>],
+    ) -> &nas::CsrMatrix<Orientation>
+    where
+        na::Const<INPUT_DIM>: na::DimName,
+        na::Const<MESH_DIM>: na::DimName + na::DimNameSub<na::Const<INPUT_DIM>>,
+    {
+        let primal_dim = <<Self as MeshPrimality>::PrimalDim<
+            na::Const<INPUT_DIM>,
+            na::Const<MESH_DIM>,
+        > as na::DimName>::USIZE;
+        &simplices[primal_dim - 1].coboundary_map
     }
+
     fn convert_star_from_primal(mut primal_diag: na::DVector<f64>) -> na::DVector<f64> {
         for elem in primal_diag.iter_mut() {
             *elem = 1.0 / *elem;
@@ -315,9 +290,14 @@ impl MeshPrimality for Dual {
 // iterators and views
 //
 
+// note: these are extremely unfinished.
+// the eventual goal is to be able to access all the simplex information
+// (circumcenter, volume etc.) as well as boundaries and coboundaries
+// through these views, and ideally this should be available even through IterMut
+
 pub struct SimplexView<'a> {
     indices: &'a [usize],
-    boundaries: &'a [BoundarySimplex],
+    boundaries: nas::csr::CsrRow<'a, Orientation>,
 }
 
 pub struct SimplexViewMut<'a> {
@@ -325,21 +305,22 @@ pub struct SimplexViewMut<'a> {
     boundaries: &'a mut [BoundarySimplex],
 }
 
-pub struct SimplexIter<'a> {
-    index_iter: std::slice::ChunksExact<'a, usize>,
-    boundary_iter: std::slice::ChunksExact<'a, BoundarySimplex>,
+pub struct SimplexIter<'a, const MESH_DIM: usize> {
+    simplices: &'a [SimplexCollection<MESH_DIM>],
+    dim: usize,
+    index: usize,
+    len: usize,
 }
 
-impl<'a> Iterator for SimplexIter<'a> {
+impl<'a, const MESH_DIM: usize> Iterator for SimplexIter<'a, MESH_DIM> {
     type Item = SimplexView<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let indices = self.index_iter.next()?;
-        let boundaries = self.boundary_iter.next()?;
-        Some(SimplexView {
-            indices,
-            boundaries,
-        })
+        self.index += 1;
+        if self.index >= self.len {
+            return None;
+        }
+        Some(self.simplices[self.dim].get(self.index))
     }
 }
 
