@@ -275,8 +275,6 @@ let output: nalgebra::DVector<f64> = &ops.divergence * &input;
 
 */
 
-#![warn(missing_docs)]
-
 pub mod mesh;
 #[doc(inline)]
 pub use mesh::{Dual, Primal, SimplexIter, SimplexView, SimplexViewMut, SimplicialMesh};
