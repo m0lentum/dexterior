@@ -173,6 +173,40 @@ pub fn build_mesh<const MESH_DIM: usize>(
     }
 
     //
+    // identify mesh boundary
+    //
+
+    // resize the boundary groups to fit all simplices
+    for simplices in &mut simplices {
+        simplices.mesh_boundary.grow(simplices.len());
+    }
+
+    // if a codimension 1 simplex is only on the boundary of one codimension 0 simplex,
+    // then it is on the boundary of the mesh
+    let cob_1_simplices = &mut simplices[MESH_DIM - 1];
+    let coboundary_map = &cob_1_simplices.coboundary_map;
+    let mesh_boundary = &mut cob_1_simplices.mesh_boundary;
+    for (row_idx, cod_1_coboundary) in coboundary_map.row_iter().enumerate() {
+        if cod_1_coboundary.nnz() == 1 {
+            mesh_boundary.insert(row_idx);
+        }
+    }
+
+    // also add boundary groups for lower-dimensional simplices
+    let mut level_iter = simplices.iter_mut().rev().skip(1).peekable();
+    while let Some(upper_simplices) = level_iter.next() {
+        let Some(lower_simplices) = level_iter.peek_mut() else {
+            break;
+        };
+        for simplex_idx in upper_simplices.mesh_boundary.ones() {
+            for boundary_simplex_idx in upper_simplices.boundary_map.row(simplex_idx).col_indices()
+            {
+                lower_simplices.mesh_boundary.insert(*boundary_simplex_idx);
+            }
+        }
+    }
+
+    //
     // compute circumcenters
     //
 
@@ -566,6 +600,7 @@ pub fn tiny_mesh_3d() -> SimplicialMesh<3> {
 mod tests {
     use super::*;
     use approx::{abs_diff_eq, relative_eq};
+    use fixedbitset as fb;
 
     /// Lower-dimensional simplices, circumcenters, volumes etc.
     /// are generated correctly for a simple 2d mesh.
@@ -624,6 +659,25 @@ mod tests {
             expected_2_boundaries, actual_2_boundaries,
             "incorrect 2-simplex boundaries"
         );
+
+        // mesh boundary
+
+        let expected_mesh_boundaries: [fb::FixedBitSet; 3] = [
+            [0, 1, 2, 4, 5, 6].into_iter().collect(),
+            [2, 4, 6, 8, 9, 11].into_iter().collect(),
+            fb::FixedBitSet::with_capacity(6),
+        ];
+        for (dim, (expected, actual)) in izip!(
+            &expected_mesh_boundaries,
+            mesh.simplices.iter().map(|s| &s.mesh_boundary)
+        )
+        .enumerate()
+        {
+            assert_eq!(
+                *expected, *actual,
+                "{dim}-boundaries didn't match: expected {expected}, got {actual}"
+            );
+        }
 
         // primal volumes
 
@@ -810,6 +864,28 @@ mod tests {
             expected_3_boundaries, actual_3_boundaries,
             "incorrect 3-simplex boundaries"
         );
+
+        // mesh boundary
+
+        let expected_mesh_boundaries: [fb::FixedBitSet; 4] = [
+            [0, 1, 2, 3, 4, 5].into_iter().collect(),
+            [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+                .into_iter()
+                .collect(),
+            [1, 2, 5, 6, 7, 8, 10, 11].into_iter().collect(),
+            fb::FixedBitSet::with_capacity(4),
+        ];
+        for (dim, (expected, actual)) in izip!(
+            &expected_mesh_boundaries,
+            mesh.simplices.iter().map(|s| &s.mesh_boundary)
+        )
+        .enumerate()
+        {
+            assert_eq!(
+                *expected, *actual,
+                "{dim}-boundaries didn't match: expected {expected}, got {actual}"
+            );
+        }
 
         // there are so many 2-simplex boundaries on this one
         // I can't be bothered to write them all out,

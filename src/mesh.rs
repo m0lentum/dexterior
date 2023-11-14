@@ -10,6 +10,7 @@ pub use mesh_construction::{tiny_mesh_2d, tiny_mesh_3d};
 
 //
 
+use fixedbitset as fb;
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
@@ -45,6 +46,8 @@ pub struct SimplexCollection<const DIM: usize> {
     /// the rows in this correspond to DIM-simplices again,
     /// and the columns to DIM+1-simplices.
     coboundary_map: nas::CsrMatrix<Orientation>,
+    /// simplices on the boundary of the mesh.
+    mesh_boundary: fb::FixedBitSet,
     /// circumcenters Rc'd so that 0-simplices
     /// can have the mesh vertices here without duplicating data
     circumcenters: Rc<[na::SVector<f64, DIM>]>,
@@ -63,6 +66,7 @@ impl<const DIM: usize> Default for SimplexCollection<DIM> {
             indices: Vec::new(),
             boundary_map: nas::CsrMatrix::zeros(0, 0),
             coboundary_map: nas::CsrMatrix::zeros(0, 0),
+            mesh_boundary: fb::FixedBitSet::default(),
             circumcenters: Rc::from([]),
             volumes: Vec::new(),
             dual_volumes: Vec::new(),
@@ -129,7 +133,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     }
 
     /// Create a new cochain with a value of zero
-    /// for each `Dimension`-simplex in the mesh.
+    /// for each `DIM`-simplex in the mesh.
     ///
     /// See the [module-level docs][crate#operators] for usage information.
     pub fn new_zero_cochain<const DIM: usize, Primality>(&self) -> crate::Cochain<DIM, Primality>
