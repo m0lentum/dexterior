@@ -8,7 +8,7 @@ use crate::{
     cochain::CochainImpl,
     mesh::{MeshPrimality, SubsetRef},
 };
-use itertools::{izip, Itertools};
+use itertools::izip;
 
 //
 // traits
@@ -21,9 +21,9 @@ pub trait Operator {
     /// The type of cochain this operator produces as an output.
     type Output: OperatorInput;
 
-    /// Method to apply this operator to an input cochain.
+    /// Apply this operator to an input cochain.
     fn apply(&self, input: &Self::Input) -> Self::Output;
-    /// Method to convert this operator into a CSR matrix.
+    /// Convert this operator into a CSR matrix.
     fn into_csr(self) -> nas::CsrMatrix<f64>;
 }
 
@@ -320,7 +320,7 @@ fn drop_csr_rows(mat: nas::CsrMatrix<f64>, set_to_drop: &fb::FixedBitSet) -> nas
 // std trait implementations
 //
 
-// Mul implementations for composition and application to cochains.
+// Mul implementations for composition, scalar multiplication and application to cochains.
 // These need to be implemented for each type separately due to the orphan rule
 
 // compositions
@@ -360,6 +360,35 @@ where
 
     fn mul(self, rhs: Op) -> Self::Output {
         compose(self, rhs)
+    }
+}
+
+// scalar multiplication
+
+impl<const D: usize, P> std::ops::Mul<ExteriorDerivative<D, P>> for f64 {
+    type Output = ExteriorDerivative<D, P>;
+
+    fn mul(self, mut rhs: ExteriorDerivative<D, P>) -> Self::Output {
+        rhs.mat *= self;
+        rhs
+    }
+}
+
+impl<const D: usize, const MD: usize, P> std::ops::Mul<HodgeStar<D, MD, P>> for f64 {
+    type Output = HodgeStar<D, MD, P>;
+
+    fn mul(self, mut rhs: HodgeStar<D, MD, P>) -> Self::Output {
+        rhs.diagonal *= self;
+        rhs
+    }
+}
+
+impl<L, R> std::ops::Mul<ComposedOperator<L, R>> for f64 {
+    type Output = ComposedOperator<L, R>;
+
+    fn mul(self, mut rhs: ComposedOperator<L, R>) -> Self::Output {
+        rhs.mat *= self;
+        rhs
     }
 }
 
