@@ -106,6 +106,12 @@ pub enum Orientation {
     Backward = -1,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SubsetRef<'a, Dimension, Primality> {
+    pub indices: &'a fb::FixedBitSet,
+    _marker: std::marker::PhantomData<(Dimension, Primality)>,
+}
+
 impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// Construct a mesh from raw vertices and indices.
     ///
@@ -196,6 +202,16 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         );
 
         crate::HodgeStar::new(Primality::convert_star_from_primal(diag))
+    }
+
+    pub fn boundary<const DIM: usize>(&self) -> SubsetRef<'_, na::Const<DIM>, Primal>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        SubsetRef {
+            indices: &self.simplices[DIM].mesh_boundary,
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 

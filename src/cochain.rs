@@ -49,6 +49,9 @@ impl<Dimension, Primality> CochainImpl<Dimension, Primality> {
 }
 
 impl<Dimension, Primality> crate::operator::OperatorInput for CochainImpl<Dimension, Primality> {
+    type Dimension = Dimension;
+    type Primality = Primality;
+
     fn values(&self) -> &na::DVector<f64> {
         &self.values
     }

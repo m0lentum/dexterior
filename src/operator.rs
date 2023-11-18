@@ -1,10 +1,18 @@
 //! Composable operators for doing math on [`Cochain`][crate::Cochain]s.
 
-use itertools::izip;
+use fixedbitset as fb;
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
-use crate::{cochain::CochainImpl, mesh::MeshPrimality};
+use crate::{
+    cochain::CochainImpl,
+    mesh::{MeshPrimality, SubsetRef},
+};
+use itertools::{izip, Itertools};
+
+//
+// traits
+//
 
 /// Trait enabling operator composition checked for compatibility at compile time.
 pub trait Operator {
@@ -15,18 +23,26 @@ pub trait Operator {
 
     /// Method to apply this operator to an input cochain.
     fn apply(&self, input: &Self::Input) -> Self::Output;
-    /// Method to convert this operator into a CSR matrix for composition.
+    /// Method to convert this operator into a CSR matrix.
     fn into_csr(self) -> nas::CsrMatrix<f64>;
 }
 
 /// Trait implemented by [`Cochain`]s to enable operators
 /// to construct and deconstruct them in a generic way.
 pub trait OperatorInput {
+    /// The dimension generic of this cochain, used for matching with other generic types.
+    type Dimension;
+    /// The primality generic of this cochain, used for matching with other generic types.
+    type Primality;
     /// Get the underlying vector of values in the cochain.
     fn values(&self) -> &na::DVector<f64>;
     /// Construct a cochain from a vector of values.
     fn from_values(values: na::DVector<f64>) -> Self;
 }
+
+//
+// concrete operators
+//
 
 /// The exterior derivative, also known as the coboundary operator.
 ///
@@ -54,13 +70,32 @@ where
     }
 }
 
-impl<const DIM: usize, Primality> ExteriorDerivative<DIM, Primality> {
+impl<const DIM: usize, Primality> ExteriorDerivative<DIM, Primality>
+where
+    na::Const<DIM>: na::DimNameAdd<na::U1>,
+{
     /// Constructor exposed to crate only, used in `SimplicialMesh::d`.
     pub(crate) fn new(mat: nas::CsrMatrix<f64>) -> Self {
         Self {
             mat,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Set a subset of elements in the output cochain to zero
+    /// when this operator is applied
+    /// (i.e. set a subset of rows in the operator matrix to zero).
+    /// useful for boundary conditions.
+    pub fn exclude_subset(
+        mut self,
+        set: SubsetRef<
+            '_,
+            <<Self as Operator>::Output as OperatorInput>::Dimension,
+            <<Self as Operator>::Output as OperatorInput>::Primality,
+        >,
+    ) -> Self {
+        self.mat = drop_csr_rows(self.mat, set.indices);
+        self
     }
 }
 
@@ -113,13 +148,35 @@ where
     }
 }
 
-impl<const DIM: usize, const MESH_DIM: usize, Primality> HodgeStar<DIM, MESH_DIM, Primality> {
+impl<const DIM: usize, const MESH_DIM: usize, Primality> HodgeStar<DIM, MESH_DIM, Primality>
+where
+    na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    Primality: MeshPrimality,
+{
     /// Constructor exposed to crate only, used in `SimplicialMesh::star`.
     pub(crate) fn new(diagonal: na::DVector<f64>) -> Self {
         Self {
             diagonal,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Set a subset of elements in the output cochain to zero
+    /// when this operator is applied
+    /// (i.e. set a subset of rows in the operator matrix to zero).
+    /// useful for boundary conditions.
+    pub fn exclude_subset(
+        mut self,
+        set: SubsetRef<
+            '_,
+            <<Self as Operator>::Output as OperatorInput>::Dimension,
+            <<Self as Operator>::Output as OperatorInput>::Primality,
+        >,
+    ) -> Self {
+        for row_idx in set.indices.ones() {
+            self.diagonal[row_idx] = 0.0;
+        }
+        self
     }
 }
 
@@ -163,11 +220,37 @@ where
     }
 }
 
+impl<Left, Right> ComposedOperator<Left, Right>
+where
+    Left: Operator<Input = Right::Output>,
+    Right: Operator,
+{
+    /// Set a subset of elements in the output cochain to zero
+    /// when this operator is applied
+    /// (i.e. set a subset of rows in the operator matrix to zero).
+    /// useful for boundary conditions.
+    pub fn exclude_subset(
+        mut self,
+        set: SubsetRef<
+            '_,
+            <<Self as Operator>::Output as OperatorInput>::Dimension,
+            <<Self as Operator>::Output as OperatorInput>::Primality,
+        >,
+    ) -> Self {
+        self.mat = drop_csr_rows(self.mat, set.indices);
+        self
+    }
+}
+
 impl<L, R> PartialEq for ComposedOperator<L, R> {
     fn eq(&self, other: &Self) -> bool {
         self.mat == other.mat
     }
 }
+
+//
+// helper functions
+//
 
 /// Compose two operators such that `r` is applied before `l`.
 ///
@@ -190,6 +273,52 @@ where
         _marker: std::marker::PhantomData,
     }
 }
+
+/// Takes a CSR matrix and generates another matrix with the given rows set to zeroes.
+/// Used in operator methods for boundary conditions.
+///
+/// In hindsight, this could have been done much more concisely
+/// by simply multiplying with a diagonal matrix.
+/// Oh well, at least this one is more performant :^)
+fn drop_csr_rows(mat: nas::CsrMatrix<f64>, set_to_drop: &fb::FixedBitSet) -> nas::CsrMatrix<f64> {
+    let num_rows = mat.nrows();
+    let num_cols = mat.ncols();
+    // disassemble to reuse allocated memory
+    let (mut row_offsets, mut col_indices, mut values) = mat.disassemble();
+
+    // loop through the rows while keeping track of the number of retained values,
+    // moving col_indices and values left by the appropriate amounts
+    // and rebuilding row_offsets from scratch
+    let mut retained_value_idx = 0;
+    // row_offsets[row_idx + 1] gets overwritten during the loop,
+    // so we need to keep the old value of that as state
+    let mut prev_row_offset = 0;
+    for row_idx in 0..num_rows {
+        let old_row_range = prev_row_offset..row_offsets[row_idx + 1];
+        prev_row_offset = row_offsets[row_idx + 1];
+
+        if set_to_drop.contains(row_idx) {
+            row_offsets[row_idx + 1] = row_offsets[row_idx];
+        } else {
+            for old_val_idx in old_row_range {
+                col_indices[retained_value_idx] = col_indices[old_val_idx];
+                values[retained_value_idx] = values[old_val_idx];
+                retained_value_idx += 1;
+            }
+            row_offsets[row_idx + 1] = retained_value_idx;
+        }
+    }
+
+    // drop the leftover ends off the col_indices and values
+    col_indices.truncate(retained_value_idx);
+    values.truncate(retained_value_idx);
+
+    nas::CsrMatrix::try_from_csr_data(num_rows, num_cols, row_offsets, col_indices, values).unwrap()
+}
+
+//
+// std trait implementations
+//
 
 // Mul implementations for composition and application to cochains.
 // These need to be implemented for each type separately due to the orphan rule
@@ -352,6 +481,8 @@ where
 // tests
 //
 
+// these are not very exhaustive;
+// we'll use examples as "integration tests" to make sure the math is right
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,5 +537,58 @@ mod tests {
             mesh.d::<0, Primal>().mat.transpose(),
             "dual d_1 should be the transpose of primal d_0",
         );
+    }
+
+    #[test]
+    fn exclude_subsets() {
+        let mesh = tiny_mesh_2d();
+
+        // d
+
+        let d0_full = mesh.d::<0, Primal>();
+        let boundary = mesh.boundary::<1>();
+        let d0_excluded = d0_full.clone().exclude_subset(boundary);
+        // this would also work with type inference:
+        // let d0_excluded = d0_full.clone().exclude_subset(mesh.boundary());
+        // but writing out the type explicitly to make sure it's correct
+        for (row_idx, (full_row, excluded_row)) in
+            izip!(d0_full.mat.row_iter(), d0_excluded.mat.row_iter()).enumerate()
+        {
+            if boundary.indices.contains(row_idx) {
+                assert!(excluded_row.nnz() == 0);
+            } else {
+                assert_eq!(full_row, excluded_row);
+            }
+        }
+
+        // star
+
+        let star_full = mesh.star::<2, Dual>();
+        let boundary = mesh.boundary::<0>();
+        let star_excluded = star_full.clone().exclude_subset(boundary);
+        for (row_idx, (full_diag, excluded_diag)) in
+            izip!(star_full.diagonal.iter(), star_excluded.diagonal.iter()).enumerate()
+        {
+            if boundary.indices.contains(row_idx) {
+                assert!(*excluded_diag == 0.0);
+            } else {
+                assert_eq!(full_diag, excluded_diag);
+            }
+        }
+
+        // composed
+
+        let comp_full = mesh.star() * mesh.d() * mesh.star() * mesh.d::<0, Primal>();
+        let boundary = mesh.boundary::<0>();
+        let comp_excluded = comp_full.clone().exclude_subset(boundary);
+        for (row_idx, (full_row, excluded_row)) in
+            izip!(comp_full.mat.row_iter(), comp_excluded.mat.row_iter()).enumerate()
+        {
+            if boundary.indices.contains(row_idx) {
+                assert!(excluded_row.nnz() == 0);
+            } else {
+                assert_eq!(full_row, excluded_row);
+            }
+        }
     }
 }
