@@ -171,6 +171,10 @@ pub fn build_mesh<const MESH_DIM: usize>(
         simplices[boundary_dim].coboundary_map = boundary_map.transpose();
         simplices[simplex_dim].boundary_map = boundary_map;
     }
+    // set dimensions of the empty 0-boundary and MESH_DIM-coboundary matrices
+    // so that row indexing works on them too
+    simplices[0].boundary_map = nas::CsrMatrix::zeros(simplices[0].len(), 0);
+    simplices[MESH_DIM].coboundary_map = nas::CsrMatrix::zeros(simplices[MESH_DIM].len(), 0);
 
     //
     // identify mesh boundary
