@@ -277,7 +277,7 @@ let output: nalgebra::DVector<f64> = &ops.divergence * &input;
 
 pub mod mesh;
 #[doc(inline)]
-pub use mesh::{Dual, Primal, SimplexIter, SimplexView, SimplexViewMut, SimplicialMesh};
+pub use mesh::{Dual, Primal, SimplexIter, SimplexView, SimplicialMesh};
 
 pub mod cochain;
 #[doc(inline)]

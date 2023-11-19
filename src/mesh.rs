@@ -80,15 +80,6 @@ impl<const DIM: usize> SimplexCollection<DIM> {
     fn len(&self) -> usize {
         self.indices.len() / self.simplex_size
     }
-
-    fn get(&self, idx: usize) -> SimplexView<'_> {
-        let start_idx = idx * self.simplex_size;
-        let idx_range = start_idx..start_idx + self.simplex_size;
-        SimplexView {
-            indices: &self.indices[idx_range.clone()],
-            boundaries: self.boundary_map.row(idx),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -138,6 +129,28 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         self.simplices[dim].len()
     }
 
+    #[inline]
+    pub fn get_simplex_by_index<const DIM: usize>(
+        &self,
+        idx: usize,
+    ) -> SimplexView<'_, DIM, MESH_DIM> {
+        let start_idx = idx * self.simplices[DIM].simplex_size;
+        let idx_range = start_idx..start_idx + self.simplices[DIM].simplex_size;
+        SimplexView {
+            vertices: &self.vertices,
+            indices: &self.simplices[DIM].indices[idx_range],
+            boundaries: self.simplices[DIM].boundary_map.row(idx),
+        }
+    }
+
+    pub fn simplices<const DIM: usize>(&self) -> SimplexIter<'_, DIM, MESH_DIM> {
+        SimplexIter {
+            mesh: self,
+            index: 0,
+            len: self.simplices[DIM].len(),
+        }
+    }
+
     /// Create a new cochain with a value of zero
     /// for each `DIM`-simplex in the mesh.
     ///
@@ -153,6 +166,45 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             MESH_DIM - DIM
         };
         crate::Cochain::zeros(self.simplex_count_dyn(primal_dim))
+    }
+
+    /// Create a cochain with values supplied by a function
+    /// that takes the vertices of a cell and produces a scalar.
+    ///
+    /// This does not integrate a function automatically;
+    /// the user is expected to compute the integral over a simplex themselves.
+    /// There are plans to implement quadratures for numerical integration
+    /// that can be used with this in `dexterior`, but for now it must be done by hand.
+    ///
+    /// For primal simplices, the number of vertices in the slice
+    /// given to the integration function is guaranteed to be `DIM + 1`.
+    /// For dual cells of dimension 2 and above, the number can vary.
+    pub fn integrate_cochain<const DIM: usize, Primality, IntgFn>(
+        &self,
+        mut integrate: IntgFn,
+    ) -> crate::Cochain<DIM, Primality>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        Primality: MeshPrimality,
+        IntgFn: FnMut(&[na::SVector<f64, MESH_DIM>]) -> f64,
+    {
+        let mut c = self.new_zero_cochain::<DIM, Primality>();
+        // buffer to hold vertices of the current cell
+        // so that we can pass them into the function as a slice
+        // (their placement in the source data is not generally contiguous)
+        let mut vertices = Vec::new();
+
+        if Primality::IS_PRIMAL {
+            for (simplex, c_val) in izip!(self.simplices::<DIM>(), c.values.iter_mut()) {
+                vertices.extend(simplex.vertices());
+                *c_val = integrate(&vertices);
+                vertices.clear();
+            }
+        } else {
+            todo!("Dual cell integration is not implemented yet");
+        }
+
+        c
     }
 
     /// Construct an exterior derivative operator.
@@ -282,49 +334,34 @@ impl MeshPrimality for Dual {
 // (circumcenter, volume etc.) as well as boundaries and coboundaries
 // through these views, and ideally this should be available even through IterMut
 
-pub struct SimplexView<'a> {
+pub struct SimplexView<'a, const DIM: usize, const MESH_DIM: usize> {
     indices: &'a [usize],
     boundaries: nas::csr::CsrRow<'a, Orientation>,
+    // view into all vertices of the mesh,
+    // indexed into by values in the `indices` slice
+    vertices: &'a [na::SVector<f64, MESH_DIM>],
 }
 
-pub struct SimplexViewMut<'a> {
-    indices: &'a mut [usize],
-    boundaries: &'a mut [BoundarySimplex],
+impl<'a, const DIM: usize, const MESH_DIM: usize> SimplexView<'a, DIM, MESH_DIM> {
+    pub fn vertices(&self) -> impl '_ + Iterator<Item = na::SVector<f64, MESH_DIM>> {
+        self.indices.iter().map(|i| self.vertices[*i])
+    }
 }
 
-pub struct SimplexIter<'a, const MESH_DIM: usize> {
-    simplices: &'a [SimplexCollection<MESH_DIM>],
-    dim: usize,
+pub struct SimplexIter<'a, const DIM: usize, const MESH_DIM: usize> {
+    mesh: &'a SimplicialMesh<MESH_DIM>,
     index: usize,
     len: usize,
 }
 
-impl<'a, const MESH_DIM: usize> Iterator for SimplexIter<'a, MESH_DIM> {
-    type Item = SimplexView<'a>;
+impl<'a, const DIM: usize, const MESH_DIM: usize> Iterator for SimplexIter<'a, DIM, MESH_DIM> {
+    type Item = SimplexView<'a, DIM, MESH_DIM>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.index += 1;
         if self.index >= self.len {
             return None;
         }
-        Some(self.simplices[self.dim].get(self.index))
-    }
-}
-
-struct SimplexIterMut<'a> {
-    index_iter: std::slice::ChunksExactMut<'a, usize>,
-    boundary_iter: std::slice::ChunksExactMut<'a, BoundarySimplex>,
-}
-
-impl<'a> Iterator for SimplexIterMut<'a> {
-    type Item = SimplexViewMut<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let indices = self.index_iter.next()?;
-        let boundaries = self.boundary_iter.next()?;
-        Some(SimplexViewMut {
-            indices,
-            boundaries,
-        })
+        Some(self.mesh.get_simplex_by_index::<DIM>(self.index))
     }
 }

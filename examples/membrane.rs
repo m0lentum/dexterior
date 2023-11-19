@@ -9,6 +9,7 @@ use dexterior as dex;
 type Pressure = dex::Cochain<0, dex::Primal>;
 type Velocity = dex::Cochain<1, dex::Primal>;
 
+#[derive(Clone, Debug)]
 struct State {
     p: Pressure,
     v: Velocity,
@@ -28,9 +29,12 @@ fn main() {
     let dt = 0.17;
     let wave_speed_sq = 1.0f64.powi(2);
 
-    // TODO: methods to easily create a nonzero initial state
     let mut state = State {
-        p: mesh.new_zero_cochain(),
+        // note: this initial state currently doesn't fulfill the boundary condition
+        // because the shape of the mesh is not what this experiment was designed for.
+        // once we can generate meshes it should be a [0, 0] x [pi, pi] square,
+        // where this is zero everywhere on the boundary.
+        p: mesh.integrate_cochain(|v| f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)),
         v: mesh.new_zero_cochain(),
     };
 
