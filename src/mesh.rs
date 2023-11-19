@@ -147,9 +147,11 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,
     {
-        // GAT magic to compute the corresponding primal dimension at compile time
-        let primal_dim =
-            <Primality::PrimalDim<na::Const<DIM>, na::Const<MESH_DIM>> as na::DimName>::USIZE;
+        let primal_dim = if Primality::IS_PRIMAL {
+            DIM
+        } else {
+            MESH_DIM - DIM
+        };
         crate::Cochain::zeros(self.simplex_count_dyn(primal_dim))
     }
 
@@ -163,7 +165,11 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             na::DimNameSub<na::DimNameSum<na::Const<DIM>, na::U1>> + na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,
     {
-        let orientation_mat = Primality::select_d_matrix::<DIM, MESH_DIM>(&self.simplices);
+        let orientation_mat = if Primality::IS_PRIMAL {
+            &self.simplices[DIM + 1].boundary_map
+        } else {
+            &self.simplices[MESH_DIM - DIM - 1].coboundary_map
+        };
         // build the same matrix
         // but with Orientations converted to floats for easy multiplication.
         // technically we could reference `orientation_mat` directly in the operator,
@@ -188,9 +194,18 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,
     {
-        let primal_dim =
-            <Primality::PrimalDim<na::Const<DIM>, na::Const<MESH_DIM>> as na::DimName>::USIZE;
+        let primal_dim = if Primality::IS_PRIMAL {
+            DIM
+        } else {
+            MESH_DIM - DIM
+        };
         let simplex_count = self.simplex_count_dyn(primal_dim);
+
+        let compute_diag_val = if Primality::IS_PRIMAL {
+            |(primal_vol, dual_vol): (&f64, &f64)| *primal_vol / *dual_vol
+        } else {
+            |(primal_vol, dual_vol): (&f64, &f64)| *dual_vol / *primal_vol
+        };
 
         let diag = na::DVector::from_iterator(
             simplex_count,
@@ -198,10 +213,10 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                 &self.simplices[primal_dim].volumes,
                 &self.simplices[primal_dim].dual_volumes
             )
-            .map(|(primal_vol, dual_vol)| *primal_vol / *dual_vol),
+            .map(compute_diag_val),
         );
 
-        crate::HodgeStar::new(Primality::convert_star_from_primal(diag))
+        crate::HodgeStar::new(diag)
     }
 
     pub fn boundary<const DIM: usize>(&self) -> SubsetRef<'_, na::Const<DIM>, Primal>
@@ -234,76 +249,28 @@ pub struct Dual;
 /// or dual ([`Dual`][self::Dual]) mesh.
 ///
 /// Not intended to be implemented by users,
-/// so methods are hidden from docs.
+/// so contents are hidden from docs.
 pub trait MeshPrimality {
+    /// Constant for runtime branching.
+    ///
+    /// There used to be some GAT magic and associated methods here,
+    /// but branching on this is much easier to read
+    /// and should optimize to roughly the same machine code.
+    #[doc(hidden)]
+    const IS_PRIMAL: bool;
     /// Maps Primal to Dual and Dual to Primal.
     #[doc(hidden)]
     type Opposite: MeshPrimality;
-    /// GAT that allows computing the corresponding primal dimension
-    /// of a dual cochain at compile time.
-    #[doc(hidden)]
-    type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>>: na::DimName;
-
-    /// All exterior derivative matrices are already computed at mesh creation time.
-    /// This method finds the correct matrix for the given primality and dimension.
-    #[doc(hidden)]
-    fn select_d_matrix<const INPUT_DIM: usize, const MESH_DIM: usize>(
-        simplices: &[SimplexCollection<MESH_DIM>],
-    ) -> &nas::CsrMatrix<Orientation>
-    where
-        na::Const<INPUT_DIM>: na::DimName,
-        na::Const<MESH_DIM>: na::DimName + na::DimNameSub<na::Const<INPUT_DIM>>;
-
-    /// Conversion procedure for Hodge star constructed for the primal mesh.
-    /// The star on the dual mesh is the inverse of the one on the primal mesh.
-    #[doc(hidden)]
-    fn convert_star_from_primal(primal_diag: na::DVector<f64>) -> na::DVector<f64>;
 }
 
 impl MeshPrimality for Primal {
+    const IS_PRIMAL: bool = true;
     type Opposite = Dual;
-    type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>> = Dim;
-
-    fn select_d_matrix<const INPUT_DIM: usize, const MESH_DIM: usize>(
-        simplices: &[SimplexCollection<MESH_DIM>],
-    ) -> &nas::CsrMatrix<Orientation>
-    where
-        na::Const<INPUT_DIM>: na::DimName,
-        na::Const<MESH_DIM>: na::DimName + na::DimNameSub<na::Const<INPUT_DIM>>,
-    {
-        &simplices[INPUT_DIM + 1].boundary_map
-    }
-
-    fn convert_star_from_primal(primal_diag: na::DVector<f64>) -> na::DVector<f64> {
-        primal_diag
-    }
 }
 
 impl MeshPrimality for Dual {
+    const IS_PRIMAL: bool = false;
     type Opposite = Primal;
-    type PrimalDim<Dim: na::DimName, MeshDim: na::DimName + na::DimNameSub<Dim>> =
-        na::DimNameDiff<MeshDim, Dim>;
-
-    fn select_d_matrix<const INPUT_DIM: usize, const MESH_DIM: usize>(
-        simplices: &[SimplexCollection<MESH_DIM>],
-    ) -> &nas::CsrMatrix<Orientation>
-    where
-        na::Const<INPUT_DIM>: na::DimName,
-        na::Const<MESH_DIM>: na::DimName + na::DimNameSub<na::Const<INPUT_DIM>>,
-    {
-        let primal_dim = <<Self as MeshPrimality>::PrimalDim<
-            na::Const<INPUT_DIM>,
-            na::Const<MESH_DIM>,
-        > as na::DimName>::USIZE;
-        &simplices[primal_dim - 1].coboundary_map
-    }
-
-    fn convert_star_from_primal(mut primal_diag: na::DVector<f64>) -> na::DVector<f64> {
-        for elem in primal_diag.iter_mut() {
-            *elem = 1.0 / *elem;
-        }
-        primal_diag
-    }
 }
 
 //
