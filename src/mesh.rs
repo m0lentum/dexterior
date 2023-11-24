@@ -179,6 +179,14 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// For primal simplices, the number of vertices in the slice
     /// given to the integration function is guaranteed to be `DIM + 1`.
     /// For dual cells of dimension 2 and above, the number can vary.
+    ///
+    /// NOTE: The only cases of this that are fully implemented
+    /// are primal 0- and 1-simplices and dual 0-cells.
+    /// There is an initial sketch of an implementation for the general case,
+    /// but it currently gives vertices in an arbitrary order
+    /// that may not match the orientation of the cell.
+    /// It also hasn't been tested so correctness isn't guaranteed.
+    /// Use with extreme caution.
     pub fn integrate_cochain<const DIM: usize, Primality, IntgFn>(
         &self,
         mut integrate: IntgFn,
@@ -189,19 +197,63 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         IntgFn: FnMut(&[na::SVector<f64, MESH_DIM>]) -> f64,
     {
         let mut c = self.new_zero_cochain::<DIM, Primality>();
-        // buffer to hold vertices of the current cell
-        // so that we can pass them into the function as a slice
-        // (their placement in the source data is not generally contiguous)
-        let mut vertices = Vec::new();
 
-        if Primality::IS_PRIMAL {
-            for (simplex, c_val) in izip!(self.simplices::<DIM>(), c.values.iter_mut()) {
-                vertices.extend(simplex.vertices());
-                *c_val = integrate(&vertices);
-                vertices.clear();
+        match (DIM, Primality::IS_PRIMAL) {
+            // special cases for 0-simplices since they don't need to be collected into a slice
+            (0, true) => {
+                for (vertex, c_val) in izip!(self.vertices.iter(), c.values.iter_mut()) {
+                    *c_val = integrate(&[*vertex]);
+                }
             }
-        } else {
-            todo!("Dual cell integration is not implemented yet");
+            (0, false) => {
+                // dual 0-simplices are the circumcenters of highest-dimensional simplices
+                for (circumcenter, c_val) in izip!(
+                    self.simplices[MESH_DIM].circumcenters.iter(),
+                    c.values.iter_mut()
+                ) {
+                    *c_val = integrate(&[*circumcenter]);
+                }
+            }
+            // higher-dimensional simplices
+            // (incomplete cases!! see doc comment)
+            (_, true) => {
+                // buffer to hold vertices of the current cell
+                // so that we can pass them into the function as a slice
+                // (their placement in the source data is generally not contiguous)
+                let mut vertices = Vec::new();
+
+                for (simplex, c_val) in izip!(self.simplices::<DIM>(), c.values.iter_mut()) {
+                    vertices.extend(simplex.vertices());
+                    *c_val = integrate(&vertices);
+                    vertices.clear();
+                }
+            }
+            (_, false) => {
+                let mut vertices = Vec::new();
+                let primal_dim = MESH_DIM - DIM;
+                // the dual cell is composed of circumcenters of all coboundary simplices
+                for (simplex_idx, (cob_row, c_val)) in izip!(
+                    self.simplices[primal_dim].coboundary_map.row_iter(),
+                    c.values.iter_mut()
+                )
+                .enumerate()
+                {
+                    for &cob_idx in cob_row.col_indices() {
+                        let cob_circumcenter =
+                            self.simplices[primal_dim + 1].circumcenters[cob_idx];
+                        vertices.push(cob_circumcenter);
+                    }
+                    // boundary dual 1-simplices are a special case
+                    // as they end on the boundary `MESH_DIM - 1`-simplex
+                    // instead of connecting two `MESH_DIM`-simplices like the rest
+                    if DIM == 1 && vertices.len() <= 1 {
+                        vertices.push(self.simplices[primal_dim].circumcenters[simplex_idx])
+                    }
+
+                    *c_val = integrate(&vertices);
+                    vertices.clear();
+                }
+            }
         }
 
         c
