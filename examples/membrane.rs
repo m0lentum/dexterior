@@ -38,7 +38,7 @@ fn main() {
 
     let ops = Ops {
         p_step: Box::new(
-            (dt * wave_speed_sq * mesh.star() * mesh.d() * mesh.star())
+            (-dt * wave_speed_sq * mesh.star() * mesh.d() * mesh.star())
                 // Dirichlet boundary implemented by removing rows from the operator
                 .exclude_subset(mesh.boundary()),
         ),

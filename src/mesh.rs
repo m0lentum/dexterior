@@ -306,9 +306,9 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         let simplex_count = self.simplex_count_dyn(primal_dim);
 
         let compute_diag_val = if Primality::IS_PRIMAL {
-            |(primal_vol, dual_vol): (&f64, &f64)| *primal_vol / *dual_vol
-        } else {
             |(primal_vol, dual_vol): (&f64, &f64)| *dual_vol / *primal_vol
+        } else {
+            |(primal_vol, dual_vol): (&f64, &f64)| *primal_vol / *dual_vol
         };
 
         let diag = na::DVector::from_iterator(
