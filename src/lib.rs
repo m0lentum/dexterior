@@ -283,6 +283,8 @@ pub mod cochain;
 #[doc(inline)]
 pub use cochain::Cochain;
 
+pub mod gmsh;
+
 pub mod operator;
 #[doc(inline)]
 pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Operator};

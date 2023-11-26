@@ -8,8 +8,10 @@ edition = "2021"
 [dependencies]
 fixedbitset = "0.4.2"
 itertools = "0.11.0"
+mshio = "0.4.2"
 nalgebra = "0.32.3"
 nalgebra-sparse = "0.9.0"
+thiserror = "1.0.50"
 
 [dev-dependencies]
 approx = "0.5.1"

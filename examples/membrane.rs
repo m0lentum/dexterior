@@ -21,19 +21,17 @@ struct Ops {
 }
 
 fn main() {
-    // TODO: generate a mesh with desired dimensions
-    let mesh = dex::mesh::tiny_mesh_2d();
+    let msh_bytes = include_bytes!("./meshes/2d_square_pi_x_pi.msh");
+    let mesh = dex::gmsh::load_trimesh_2d(msh_bytes).expect("Mesh loading failed");
 
     // TODO: pick dt based on minimum edge length
     // (this requires an iterator with access to primal volumes)
-    let dt = 0.17;
+    let dt = 1.0 / 20.0;
     let wave_speed_sq = 1.0f64.powi(2);
 
     let mut state = State {
-        // note: this initial state currently doesn't fulfill the boundary condition
-        // because the shape of the mesh is not what this experiment was designed for.
-        // once we can generate meshes it should be a [0, 0] x [pi, pi] square,
-        // where this is zero everywhere on the boundary.
+        // this is zero everywhere on the boundary of the [0, pi] x [0, pi] square
+        // as long as the coefficients on v[0].x and v[0].y are integers
         p: mesh.integrate_cochain(|v| f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)),
         v: mesh.new_zero_cochain(),
     };

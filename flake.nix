@@ -22,7 +22,22 @@
           buildInputs = [
             rust
             pkgs.lld
+            pkgs.gmsh
           ];
         };
+        # bunch of dynamically linked libs for gmsh
+        LD_LIBRARY_PATH = with pkgs.xorg; with pkgs.lib.strings;
+          concatStrings (intersperse ":" [
+            "${pkgs.libGLU}/lib"
+            "${pkgs.libglvnd}/lib"
+            "${pkgs.fontconfig.lib}/lib"
+            "${libX11}/lib"
+            "${libXrender}/lib"
+            "${libXcursor}/lib"
+            "${libXfixes}/lib"
+            "${libXft}/lib"
+            "${libXinerama}/lib"
+            "${pkgs.stdenv.cc.cc.lib}/lib64"
+          ]);
       });
 }
