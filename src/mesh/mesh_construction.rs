@@ -113,10 +113,8 @@ pub fn build_mesh<const MESH_DIM: usize>(
                 // linear search through already added simplices to deduplicate.
                 // this isn't the most efficient for large meshes,
                 // but we'll optimize later if it becomes a problem
+                // (the PyDEC paper has an algorithm for this, probably use that!)
                 let already_existing_lower = lower_simplices
-                    // lower_simplices.iter() doesn't work yet
-                    // because the boundary elements aren't allocated until next loop;
-                    // manually construct iterator over indices instead
                     .indices
                     .chunks_exact(lower_simplices.simplex_size)
                     .enumerate()

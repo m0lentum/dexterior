@@ -21,12 +21,11 @@ use std::rc::Rc;
 /// (points, line segments, triangles, tetrahedra etc).
 #[derive(Clone, Debug)]
 pub struct SimplicialMesh<const DIM: usize> {
-    /// vertices stored in a Rc so that they can be accessed from multiple locations.
-    /// mutation is (at least for now) not necessary.
-    vertices: Rc<[na::SVector<f64, DIM>]>,
-    /// storage for each dimension of simplex in the mesh
-    /// (except 0, as those are just the vertices)
-    simplices: Vec<SimplexCollection<DIM>>,
+    /// Vertices stored in a Rc so that they can be accessed from multiple locations.
+    /// Mutation after creation is not supported.
+    pub vertices: Rc<[na::SVector<f64, DIM>]>,
+    /// Storage for each dimension of simplex in the mesh.
+    pub(crate) simplices: Vec<SimplexCollection<DIM>>,
 }
 
 #[derive(Clone, Debug)]
@@ -34,7 +33,7 @@ pub struct SimplexCollection<const DIM: usize> {
     /// points per simplex in the storage Vec
     simplex_size: usize,
     /// indices stored in a flat Vec to avoid generics for dimension
-    indices: Vec<usize>,
+    pub(crate) indices: Vec<usize>,
     /// matrix where the rows correspond to DIM-simplices
     /// and the columns to (DIM-1) simplices.
     /// this matrix is the coboundary operator for (DIM-1) simplices,

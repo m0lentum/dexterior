@@ -1,8 +1,5 @@
 //! Example simulation of a vibrating membrane with fixed boundary.
 //! Acoustic wave equation, Dirichlet boundary `ɸ = 0`.
-//!
-//! This is very incomplete at the moment,
-//! made to point out unimplemented parts of the library.
 
 use dexterior as dex;
 
@@ -20,21 +17,17 @@ struct Ops {
     v_step: Box<dyn dex::Operator<Input = Pressure, Output = Velocity>>,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msh_bytes = include_bytes!("./meshes/2d_square_pi_x_pi.msh");
-    let mesh = dex::gmsh::load_trimesh_2d(msh_bytes).expect("Mesh loading failed");
+    let mesh = dex::gmsh::load_trimesh_2d(msh_bytes)?;
 
     // TODO: pick dt based on minimum edge length
-    // (this requires an iterator with access to primal volumes)
-    let dt = 1.0 / 20.0;
+    // (this requires an iterator with access to primal volumes
+    // and is currently absurdly low
+    // because I haven't implemented timing control for the real-time visualization yet
+    // so it runs way too fast :^)
+    let dt = 1.0 / 2000.0;
     let wave_speed_sq = 1.0f64.powi(2);
-
-    let mut state = State {
-        // this is zero everywhere on the boundary of the [0, pi] x [0, pi] square
-        // as long as the coefficients on v[0].x and v[0].y are integers
-        p: mesh.integrate_cochain(|v| f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)),
-        v: mesh.new_zero_cochain(),
-    };
 
     let ops = Ops {
         p_step: Box::new(
@@ -45,12 +38,28 @@ fn main() {
         v_step: Box::new(mesh.d()),
     };
 
-    let step_count = 60;
-    for _ in 0..step_count {
-        state.p += &ops.p_step * &state.v;
-        state.v += &ops.v_step * &state.p;
-    }
+    let mut state = State {
+        // this is zero everywhere on the boundary of the [0, pi] x [0, pi] square
+        // as long as the coefficients on v[0].x and v[0].y are integers
+        p: mesh.integrate_cochain(|v| f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)),
+        v: mesh.new_zero_cochain(),
+    };
 
-    // TODO: visualize this somehow
-    // (maybe matplotlib for now, custom real-time renderer later)
+    let mut window = dex::RenderWindow::new(dex::WindowParams::default())?;
+    window.run_animation(dex::Animation {
+        mesh: &mesh,
+        params: dex::AnimationParams {
+            color_map_range: Some(-1.0..1.0),
+            ..Default::default()
+        },
+        step: |draw| {
+            state.p += &ops.p_step * &state.v;
+            state.v += &ops.v_step * &state.p;
+
+            draw.vertex_colors(&state.p);
+            draw.wireframe();
+        },
+    });
+
+    Ok(())
 }

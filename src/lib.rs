@@ -275,6 +275,8 @@ let output: nalgebra::DVector<f64> = &ops.divergence * &input;
 
 */
 
+// core modules
+
 pub mod mesh;
 #[doc(inline)]
 pub use mesh::{Dual, Primal, SimplexIter, SimplexView, SimplicialMesh};
@@ -283,8 +285,19 @@ pub mod cochain;
 #[doc(inline)]
 pub use cochain::Cochain;
 
-pub mod gmsh;
-
 pub mod operator;
 #[doc(inline)]
 pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Operator};
+
+// additional modules that will probably become optional when the lib gets more mature
+
+pub mod gmsh;
+
+pub mod visuals;
+#[doc(inline)]
+pub use visuals::{
+    animation::{Animation, AnimationParams},
+    color_map::{builtin_color_maps, ColorMap},
+    pipelines::Painter,
+    render_window::{RenderWindow, WindowParams},
+};

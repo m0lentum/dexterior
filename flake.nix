@@ -23,21 +23,30 @@
             rust
             pkgs.lld
             pkgs.gmsh
+            pkgs.renderdoc
           ];
+          # bunch of dynamically linked libs for gmsh and wgpu
+          LD_LIBRARY_PATH = with pkgs.xorg; with pkgs.lib.strings;
+            concatStrings (intersperse ":" [
+              # gmsh
+              "${pkgs.libGLU}/lib"
+              "${pkgs.libglvnd}/lib"
+              "${pkgs.fontconfig.lib}/lib"
+              "${libXrender}/lib"
+              "${libXfixes}/lib"
+              "${libXft}/lib"
+              "${libXinerama}/lib"
+              # shared by both
+              "${libXcursor}/lib"
+              "${libX11}/lib"
+              # wgpu
+              "${libXxf86vm}/lib"
+              "${libXi}/lib"
+              "${libXrandr}/lib"
+              "${pkgs.vulkan-loader}/lib"
+              "${pkgs.stdenv.cc.cc.lib}/lib64"
+              "${pkgs.stdenv.cc.cc.lib}/lib64"
+            ]);
         };
-        # bunch of dynamically linked libs for gmsh
-        LD_LIBRARY_PATH = with pkgs.xorg; with pkgs.lib.strings;
-          concatStrings (intersperse ":" [
-            "${pkgs.libGLU}/lib"
-            "${pkgs.libglvnd}/lib"
-            "${pkgs.fontconfig.lib}/lib"
-            "${libX11}/lib"
-            "${libXrender}/lib"
-            "${libXcursor}/lib"
-            "${libXfixes}/lib"
-            "${libXft}/lib"
-            "${libXinerama}/lib"
-            "${pkgs.stdenv.cc.cc.lib}/lib64"
-          ]);
       });
 }
