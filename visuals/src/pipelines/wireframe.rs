@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::visuals::render_window::RenderContext;
+use crate::render_window::RenderContext;
 
 pub(crate) struct WireframePipeline {
     pipeline: wgpu::RenderPipeline,
@@ -11,7 +11,7 @@ pub(crate) struct WireframePipeline {
 impl WireframePipeline {
     pub fn new(
         window: &crate::RenderWindow,
-        mesh: &crate::SimplicialMesh<2>,
+        mesh: &dexterior::SimplicialMesh<2>,
         res: &super::SharedResources,
     ) -> Self {
         let label = Some("wireframe");
@@ -63,11 +63,7 @@ impl WireframePipeline {
 
         // 1-simplices are the line segments, so those contain the indices needed
         // for drawing the wireframe as a line list
-        let indices: Vec<u16> = mesh.simplices[1]
-            .indices
-            .iter()
-            .map(|i| *i as u16)
-            .collect();
+        let indices: Vec<u16> = mesh.indices::<1>().flatten().map(|i| *i as u16).collect();
 
         use wgpu::util::DeviceExt;
         let index_buf = window

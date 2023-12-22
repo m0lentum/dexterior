@@ -292,12 +292,3 @@ pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Operator};
 // additional modules that will probably become optional when the lib gets more mature
 
 pub mod gmsh;
-
-pub mod visuals;
-#[doc(inline)]
-pub use visuals::{
-    animation::{Animation, AnimationParams},
-    color_map::{builtin_color_maps, ColorMap},
-    pipelines::Painter,
-    render_window::{RenderWindow, WindowParams},
-};

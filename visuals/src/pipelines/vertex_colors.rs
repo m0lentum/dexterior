@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::visuals::render_window::RenderContext;
+use crate::render_window::RenderContext;
 
 pub(crate) struct VertexColorsPipeline {
     pipeline: wgpu::RenderPipeline,
@@ -11,7 +11,7 @@ pub(crate) struct VertexColorsPipeline {
 impl VertexColorsPipeline {
     pub fn new(
         window: &crate::RenderWindow,
-        mesh: &crate::SimplicialMesh<2>,
+        mesh: &dexterior::SimplicialMesh<2>,
         res: &super::SharedResources,
     ) -> Self {
         let label = Some("vertex colors");
@@ -66,11 +66,7 @@ impl VertexColorsPipeline {
 
         // for 0-cochains we set vertex colors to cochain values
         // and draw triangles, letting interpolation color the space between
-        let indices: Vec<u16> = mesh.simplices[2]
-            .indices
-            .iter()
-            .map(|i| *i as u16)
-            .collect();
+        let indices: Vec<u16> = mesh.indices::<2>().flatten().map(|i| *i as u16).collect();
 
         use wgpu::util::DeviceExt;
         let index_buf = window

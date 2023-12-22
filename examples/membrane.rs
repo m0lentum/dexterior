@@ -2,6 +2,7 @@
 //! Acoustic wave equation, Dirichlet boundary `ɸ = 0`.
 
 use dexterior as dex;
+use dexterior_visuals as dv;
 
 type Pressure = dex::Cochain<0, dex::Primal>;
 type Velocity = dex::Cochain<1, dex::Primal>;
@@ -45,10 +46,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         v: mesh.new_zero_cochain(),
     };
 
-    let mut window = dex::RenderWindow::new(dex::WindowParams::default())?;
-    window.run_animation(dex::Animation {
+    let mut window = dv::RenderWindow::new(dv::WindowParams::default())?;
+    window.run_animation(dv::Animation {
         mesh: &mesh,
-        params: dex::AnimationParams {
+        params: dv::AnimationParams {
             color_map_range: Some(-1.0..1.0),
             ..Default::default()
         },

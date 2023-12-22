@@ -29,11 +29,11 @@ pub struct SimplicialMesh<const DIM: usize> {
 }
 
 #[derive(Clone, Debug)]
-pub struct SimplexCollection<const DIM: usize> {
+pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     /// points per simplex in the storage Vec
     simplex_size: usize,
     /// indices stored in a flat Vec to avoid generics for dimension
-    pub(crate) indices: Vec<usize>,
+    pub indices: Vec<usize>,
     /// matrix where the rows correspond to DIM-simplices
     /// and the columns to (DIM-1) simplices.
     /// this matrix is the coboundary operator for (DIM-1) simplices,
@@ -49,7 +49,7 @@ pub struct SimplexCollection<const DIM: usize> {
     mesh_boundary: fb::FixedBitSet,
     /// circumcenters Rc'd so that 0-simplices
     /// can have the mesh vertices here without duplicating data
-    circumcenters: Rc<[na::SVector<f64, DIM>]>,
+    circumcenters: Rc<[na::SVector<f64, MESH_DIM>]>,
     /// unsigned volumes of the primal simplices
     volumes: Vec<f64>,
     /// unsigned volumes of the corresponding dual simplices
@@ -148,6 +148,17 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             index: 0,
             len: self.simplices[DIM].len(),
         }
+    }
+
+    /// Access the vertex indices for the given dimension of simplex
+    /// as a chunked iterator where each element is a `DIM + 1`-length slice
+    /// containing the indices of one simplex.
+    #[inline]
+    pub fn indices<const DIM: usize>(&self) -> std::slice::ChunksExact<'_, usize>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        self.simplices[DIM].indices.chunks_exact(DIM + 1)
     }
 
     /// Create a new cochain with a value of zero

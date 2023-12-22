@@ -1,0 +1,18 @@
+[package]
+name = "dexterior-visuals"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dexterior.path = ".."
+itertools.workspace = true
+nalgebra.workspace = true
+nalgebra-sparse.workspace = true
+thiserror.workspace = true
+bytemuck = { version = "1.14.0", features = ["derive"] }
+encase = { version = "0.6.1", features = ["nalgebra"] }
+enterpolation = "0.2.1"
+futures = "0.3.29"
+palette = "0.7.3"
+wgpu = "0.18.0"
+winit = "0.28.7"

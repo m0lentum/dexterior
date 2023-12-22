@@ -1,5 +1,7 @@
 //! Parameters for animated visuals.
 
+use dexterior as dex;
+
 use super::{color_map, pipelines::Painter};
 
 /// An animated visualization of simulation data.
@@ -15,7 +17,7 @@ where
     ///
     /// For now, only 2D meshes are supported.
     /// This will change in the future.
-    pub mesh: &'mesh crate::SimplicialMesh<2>,
+    pub mesh: &'mesh dex::SimplicialMesh<2>,
     /// Control parameters.
     pub params: AnimationParams,
     /// A closure that runs the simulation forward for a frame

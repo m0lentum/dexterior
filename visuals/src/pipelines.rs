@@ -13,6 +13,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 
 use super::render_window::{RenderContext, RenderWindow};
+use dexterior as dex;
 
 pub(crate) struct Renderer {
     vertex_color_pl: WireframePipeline,
@@ -33,7 +34,7 @@ struct State {
 impl Renderer {
     pub fn new(
         window: &RenderWindow,
-        mesh: &crate::SimplicialMesh<2>,
+        mesh: &dex::SimplicialMesh<2>,
         params: &crate::AnimationParams,
     ) -> Self {
         let resources = SharedResources::new(window, mesh, &params.color_maps);
@@ -111,7 +112,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
 
     /// Draw a primal 0-cochain by coloring mesh vertices
     /// according to the active color map and interpolating colors for the triangles between.
-    pub fn vertex_colors(&mut self, c: &crate::Cochain<0, crate::Primal>) {
+    pub fn vertex_colors(&mut self, c: &dex::Cochain<0, dex::Primal>) {
         let vals_as_f32: Vec<f32> = c.values.iter().map(|&v| v as f32).collect();
 
         let color_map_range = if let Some(r) = &self.rend.state.color_map_range {

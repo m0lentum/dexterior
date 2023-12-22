@@ -3,7 +3,7 @@ use std::mem::size_of;
 
 use nalgebra as na;
 
-use crate::visuals::{
+use crate::{
     camera::Camera,
     color_map::{self, ColorMap},
     render_window::RenderContext,
@@ -73,7 +73,7 @@ pub struct DynamicDataBuffer {
 impl SharedResources {
     pub fn new(
         window: &crate::RenderWindow,
-        mesh: &crate::SimplicialMesh<2>,
+        mesh: &dexterior::SimplicialMesh<2>,
         colormaps: &[ColorMap],
     ) -> Self {
         let vertices: Vec<Position> = mesh.vertices.iter().cloned().map(Position::from).collect();
