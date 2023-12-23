@@ -164,7 +164,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// Create a new cochain with a value of zero
     /// for each `DIM`-simplex in the mesh.
     ///
-    /// See the [module-level docs][crate#operators] for usage information.
+    /// See the [crate-level docs][crate#operators] for usage information.
     pub fn new_zero_cochain<const DIM: usize, Primality>(&self) -> crate::Cochain<DIM, Primality>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,

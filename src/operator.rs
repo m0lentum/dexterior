@@ -203,16 +203,7 @@ impl<const DIM: usize, const MESH_DIM: usize, Primality> PartialEq
 /// using the std [`From`] trait.
 /// This enables writing all your operator types as `ComposedOperator<Input, Output>`,
 /// a convenient pattern which can be written more concisely with the type alias [`Op`].
-/// ```
-/// # use dexterior::{Cochain, Op, Primal};
-/// type Pressure = Cochain<0, Primal>;
-/// type Velocity = Cochain<1, Primal>;
-/// struct MyOperators {
-///     p_step: Op<Velocity, Pressure>,
-///     v_step: Op<Pressure, Velocity>,
-/// }
-/// ```
-/// See the crate examples for details.
+/// See the [crate-level docs][crate#operators] and examples for details.
 #[derive(Clone, Debug)]
 pub struct ComposedOperator<Input, Output> {
     mat: nas::CsrMatrix<f64>,

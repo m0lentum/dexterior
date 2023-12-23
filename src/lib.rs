@@ -1,4 +1,7 @@
-/*! NOTE: this library is a work in progress and not ready for use yet.
+/*! NOTE: this library is very much a work in progress.
+It can already perform some simple simulations,
+but many features are still missing
+and breaking changes will happen a lot.
 
 Dexterior provides building blocks
 for the discretization of partial differential equations
@@ -24,20 +27,21 @@ see the following texts:
 - Desbrun, M., Kanso, E. & Tong, Y. (2006). [Discrete differential forms
   for Computational Modeling](https://dl.acm.org/doi/pdf/10.1145/1185657.1185665)
 
-# Constructing a mesh
+# Meshes
 
 The core of a DEC discretization is the computation mesh,
 represented in the [`SimplicialMesh`][crate::SimplicialMesh] type.
 The type has one generic parameter representing the dimension of its embedding space
 and consequently the dimension of its highest-dimensional set of simplices.
-Currently (as this is a heavy work in progress),
-you can only create one by supplying a list of raw vertices and indices.
-The plan is to support meshes built with [gmsh](http://gmsh.info/)
-and maybe eventually include a purpose-built mesh generator in Dexterior itself.
 
-## The dual mesh
+## Constructing a mesh
 
-TODO: explain how the dual relates to the primal
+A mesh can be loaded from a `.msh` file generated with [gmsh](http://gmsh.info/).
+2D triangle meshes and 3D tetrahedral meshes are supported.
+See the [`gmsh`] module for details.
+
+Alternatively, a mesh can be built manually from a list of vertices
+and a list of indices defining the highest-dimensional simplices.
 
 # Working with cochains and operators
 
@@ -178,17 +182,34 @@ The earlier divergence example could be written like this:
 # let mesh = tiny_mesh_3d();
 let divergence = mesh.star() * mesh.d() * mesh.star::<1, Primal>();
 ```
-In general, it's enough to give the type of one operator or cochain
-and the rest will follow.
-If you apply the divergence to a cochain in the same function,
+or like this, annotating the resulting [`ComposedOperator`]'s
+input and output types instead:
 ```
-# use dexterior::{mesh::tiny_mesh_3d, Primal};
+# use dexterior::{mesh::tiny_mesh_3d, Cochain, Primal, ComposedOperator};
 # let mesh = tiny_mesh_3d();
-let divergence = mesh.star() * mesh.d() * mesh.star();
-let input = mesh.new_zero_cochain::<1, Primal>();
-let output = &divergence * &input;
+let divergence: ComposedOperator<Cochain<1, Primal>, Cochain<0, Primal>>
+    = mesh.star() * mesh.d() * mesh.star();
 ```
-also compiles.
+A common pattern is to give [`Cochain`]s named type aliases
+based on the simulation variables they represent,
+which enables nice definitions like this one from the `membrane` example
+(using the [`Op`] type alias for brevity):
+```
+# use dexterior::{mesh::tiny_mesh_2d, Cochain, Op, Primal};
+# let mesh = tiny_mesh_2d();
+type Pressure = Cochain<0, Primal>;
+type Velocity = Cochain<1, Primal>;
+
+struct Ops {
+    p_step: Op<Velocity, Pressure>,
+    v_step: Op<Pressure, Velocity>,
+}
+
+let ops = Ops {
+    p_step: mesh.star() * mesh.d() * mesh.star(),
+    v_step: mesh.d().into(),
+};
+```
 
 In addition to the compatibility of operands,
 the existence of cochains and operators is also ensured at compile time.
@@ -212,67 +233,12 @@ let star = mesh.star::<3, Primal>();
 let d = mesh.d::<2, Primal>();
 ```
 
-### Pain points and workarounds
+### Visualization
 
-Unfortunately, the type errors arising from mismatching operands
-are rather verbose and confusing,
-complaining about missing trait implementations.
-A good rule of thumb is to double check your operators
-when such an error presents itself.
-
-A more problematic downside to this approach to operator types
-is that composition results in extremely verbose types.
-The type of the divergence operator, for instance, is
-```
-# use dexterior::{mesh::tiny_mesh_3d, Primal, Dual, ComposedOperator, HodgeStar, ExteriorDerivative};
-# let mesh = tiny_mesh_3d();
-let divergence: ComposedOperator<
-    ComposedOperator<HodgeStar<3, 3, Dual>, ExteriorDerivative<2, Dual>>,
-    HodgeStar<1, 3, Primal>,
->
-    = mesh.star() * mesh.d() * mesh.star();
-```
-If you need to store an operator in a struct,
-an alternative to writing all this out is to store it as a trait object:
-```
-# use dexterior::{mesh::tiny_mesh_3d, Primal, Operator, Cochain};
-# let mesh = tiny_mesh_3d();
-struct MyOperators {
-    divergence: Box<dyn Operator<
-        Input = Cochain<1, Primal>,
-        Output = Cochain<0, Primal>,
-    >>,
-}
-let ops = MyOperators {
-    divergence: Box::new(mesh.star() * mesh.d() * mesh.star()),
-};
-
-let input = mesh.new_zero_cochain::<1, Primal>();
-let output = &ops.divergence * &input;
-```
-
-Alternatively, you can opt out of `dexterior`'s type checks
-by converting your operators into [`nalgebra_sparse::CsrMatrix`][nalgebra_sparse::CsrMatrix],
-which can be multiplied with the [`nalgebra::DVector`][nalgebra::DVector]
-stored in the `values` field of [`Cochain`][crate::Cochain]:
-```
-# use dexterior::{mesh::tiny_mesh_3d, Primal, Cochain};
-# use nalgebra_sparse::CsrMatrix;
-# let mesh = tiny_mesh_3d();
-struct MyOperators {
-    divergence: CsrMatrix<f64>,
-}
-// the `into_csr` method is from the Operator trait, so it needs to be in scope
-use dexterior::Operator;
-let divergence = mesh.star() * mesh.d() * mesh.star::<1, Primal>();
-let ops = MyOperators {
-    divergence: divergence.into_csr(),
-};
-
-let input: nalgebra::DVector<f64> = mesh.new_zero_cochain::<1, Primal>().values;
-let output: nalgebra::DVector<f64> = &ops.divergence * &input;
-```
-
+Real-time visualization of the computation mesh and values of cochains
+is available in the `dexterior-visuals` crate.
+Currently only a few specific cases are supported; more to come later.
+See the examples in the `dexterior` repo for usage.
 */
 
 // core modules
