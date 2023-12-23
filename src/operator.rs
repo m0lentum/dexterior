@@ -17,9 +17,9 @@ use itertools::izip;
 /// Trait enabling operator composition checked for compatibility at compile time.
 pub trait Operator {
     /// The type of cochain this operator takes as an input.
-    type Input: OperatorInput;
+    type Input: Operand;
     /// The type of cochain this operator produces as an output.
-    type Output: OperatorInput;
+    type Output: Operand;
 
     /// Apply this operator to an input cochain.
     fn apply(&self, input: &Self::Input) -> Self::Output;
@@ -27,9 +27,9 @@ pub trait Operator {
     fn into_csr(self) -> nas::CsrMatrix<f64>;
 }
 
-/// Trait implemented by [`Cochain`]s to enable operators
+/// Trait implemented by [`Cochain`][crate::Cochain]s to enable operators
 /// to construct and deconstruct them in a generic way.
-pub trait OperatorInput {
+pub trait Operand {
     /// The dimension generic of this cochain, used for matching with other generic types.
     type Dimension;
     /// The primality generic of this cochain, used for matching with other generic types.
@@ -90,8 +90,8 @@ where
         mut self,
         set: SubsetRef<
             '_,
-            <<Self as Operator>::Output as OperatorInput>::Dimension,
-            <<Self as Operator>::Output as OperatorInput>::Primality,
+            <<Self as Operator>::Output as Operand>::Dimension,
+            <<Self as Operator>::Output as Operand>::Primality,
         >,
     ) -> Self {
         self.mat = drop_csr_rows(self.mat, set.indices);
@@ -169,8 +169,8 @@ where
         mut self,
         set: SubsetRef<
             '_,
-            <<Self as Operator>::Output as OperatorInput>::Dimension,
-            <<Self as Operator>::Output as OperatorInput>::Primality,
+            <<Self as Operator>::Output as Operand>::Dimension,
+            <<Self as Operator>::Output as Operand>::Primality,
         >,
     ) -> Self {
         for row_idx in set.indices.ones() {
@@ -188,7 +188,7 @@ impl<const DIM: usize, const MESH_DIM: usize, Primality> PartialEq
     }
 }
 
-/// A composition of two [`Operator`][self::Operator]s.
+/// A composition of one or more [`Operator`][self::Operator]s.
 ///
 /// Operator composition can be done using multiplication syntax:
 /// ```
@@ -197,19 +197,39 @@ impl<const DIM: usize, const MESH_DIM: usize, Primality> PartialEq
 /// let op: ComposedOperator<_, _> = mesh.star() * mesh.d::<1, Primal>();
 /// ```
 /// A free function [`compose`][self::compose] is also provided for the same purpose.
+///
+/// A single operator ([`ExteriorDerivative`] or [`HodgeStar`])
+/// can also be converted into a ComposedOperator without actually composing it with anything
+/// using the std [`From`] trait.
+/// This enables writing all your operator types as `ComposedOperator<Input, Output>`,
+/// a convenient pattern which can be written more concisely with the type alias [`Op`].
+/// ```
+/// # use dexterior::{Cochain, Op, Primal};
+/// type Pressure = Cochain<0, Primal>;
+/// type Velocity = Cochain<1, Primal>;
+/// struct MyOperators {
+///     p_step: Op<Velocity, Pressure>,
+///     v_step: Op<Pressure, Velocity>,
+/// }
+/// ```
+/// See the crate examples for details.
 #[derive(Clone, Debug)]
-pub struct ComposedOperator<Left, Right> {
+pub struct ComposedOperator<Input, Output> {
     mat: nas::CsrMatrix<f64>,
-    _marker: std::marker::PhantomData<(Left, Right)>,
+    _marker: std::marker::PhantomData<(Input, Output)>,
 }
 
-impl<Left, Right> Operator for ComposedOperator<Left, Right>
+/// A type alias for [`ComposedOperator`]
+/// to make common patterns more convenient to type.
+pub type Op<Input, Output> = ComposedOperator<Input, Output>;
+
+impl<Input, Output> Operator for ComposedOperator<Input, Output>
 where
-    Left: Operator<Input = Right::Output>,
-    Right: Operator,
+    Input: Operand,
+    Output: Operand,
 {
-    type Input = Right::Input;
-    type Output = Left::Output;
+    type Input = Input;
+    type Output = Output;
 
     fn apply(&self, input: &Self::Input) -> Self::Output {
         Self::Output::from_values(&self.mat * input.values())
@@ -220,10 +240,10 @@ where
     }
 }
 
-impl<Left, Right> ComposedOperator<Left, Right>
+impl<Input, Output> ComposedOperator<Input, Output>
 where
-    Left: Operator<Input = Right::Output>,
-    Right: Operator,
+    Input: Operand,
+    Output: Operand,
 {
     /// Set a subset of elements in the output cochain to zero
     /// when this operator is applied
@@ -231,11 +251,7 @@ where
     /// useful for boundary conditions.
     pub fn exclude_subset(
         mut self,
-        set: SubsetRef<
-            '_,
-            <<Self as Operator>::Output as OperatorInput>::Dimension,
-            <<Self as Operator>::Output as OperatorInput>::Primality,
-        >,
+        set: SubsetRef<'_, <Output as Operand>::Dimension, <Output as Operand>::Primality>,
     ) -> Self {
         self.mat = drop_csr_rows(self.mat, set.indices);
         self
@@ -245,6 +261,41 @@ where
 impl<L, R> PartialEq for ComposedOperator<L, R> {
     fn eq(&self, other: &Self) -> bool {
         self.mat == other.mat
+    }
+}
+
+// conversions from other operators
+
+impl<const D: usize, P> From<ExteriorDerivative<D, P>>
+    for ComposedOperator<
+        <ExteriorDerivative<D, P> as Operator>::Input,
+        <ExteriorDerivative<D, P> as Operator>::Output,
+    >
+where
+    na::Const<D>: na::DimNameAdd<na::U1>,
+{
+    fn from(d: ExteriorDerivative<D, P>) -> Self {
+        Self {
+            mat: d.mat,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<const D: usize, const MD: usize, P> From<HodgeStar<D, MD, P>>
+    for ComposedOperator<
+        <HodgeStar<D, MD, P> as Operator>::Input,
+        <HodgeStar<D, MD, P> as Operator>::Output,
+    >
+where
+    na::Const<MD>: na::DimNameSub<na::Const<D>>,
+    P: MeshPrimality,
+{
+    fn from(s: HodgeStar<D, MD, P>) -> Self {
+        Self {
+            mat: s.into_csr(),
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
@@ -263,7 +314,7 @@ impl<L, R> PartialEq for ComposedOperator<L, R> {
 ///     mesh.star::<2, Primal>() * mesh.d::<1, Primal>(),
 /// );
 /// ```
-pub fn compose<Left, Right>(l: Left, r: Right) -> ComposedOperator<Left, Right>
+pub fn compose<Left, Right>(l: Left, r: Right) -> ComposedOperator<Right::Input, Left::Output>
 where
     Left: Operator<Input = Right::Output>,
     Right: Operator,
@@ -330,7 +381,7 @@ where
     na::Const<D>: na::DimNameAdd<na::U1>,
     Op: Operator<Output = <Self as Operator>::Input>,
 {
-    type Output = ComposedOperator<Self, Op>;
+    type Output = ComposedOperator<Op::Input, <Self as Operator>::Output>;
 
     fn mul(self, rhs: Op) -> Self::Output {
         compose(self, rhs)
@@ -343,20 +394,20 @@ where
     P: MeshPrimality,
     Op: Operator<Output = <Self as Operator>::Input>,
 {
-    type Output = ComposedOperator<Self, Op>;
+    type Output = ComposedOperator<Op::Input, <Self as Operator>::Output>;
 
     fn mul(self, rhs: Op) -> Self::Output {
         compose(self, rhs)
     }
 }
 
-impl<L, R, Op> std::ops::Mul<Op> for ComposedOperator<L, R>
+impl<I, O, Op> std::ops::Mul<Op> for ComposedOperator<I, O>
 where
-    L: Operator<Input = R::Output>,
-    R: Operator,
+    I: Operand,
+    O: Operand,
     Op: Operator<Output = <Self as Operator>::Input>,
 {
-    type Output = ComposedOperator<Self, Op>;
+    type Output = ComposedOperator<Op::Input, <Self as Operator>::Output>;
 
     fn mul(self, rhs: Op) -> Self::Output {
         compose(self, rhs)
@@ -444,26 +495,24 @@ where
     }
 }
 
-impl<L, R, D, P> std::ops::Mul<&CochainImpl<D, P>> for ComposedOperator<L, R>
+impl<O, D, P> std::ops::Mul<&CochainImpl<D, P>> for ComposedOperator<CochainImpl<D, P>, O>
 where
-    L: Operator<Input = R::Output>,
-    R: Operator<Input = CochainImpl<D, P>>,
+    O: Operand,
 {
     type Output = <Self as Operator>::Output;
 
-    fn mul(self, rhs: &R::Input) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<D, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
-impl<L, R, D, P> std::ops::Mul<&CochainImpl<D, P>> for &ComposedOperator<L, R>
+impl<O, D, P> std::ops::Mul<&CochainImpl<D, P>> for &ComposedOperator<CochainImpl<D, P>, O>
 where
-    L: Operator<Input = R::Output>,
-    R: Operator<Input = CochainImpl<D, P>>,
+    O: Operand,
 {
-    type Output = <ComposedOperator<L, R> as Operator>::Output;
+    type Output = O;
 
-    fn mul(self, rhs: &R::Input) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<D, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
@@ -473,7 +522,7 @@ where
 impl<D, P, O> std::ops::Mul<&CochainImpl<D, P>>
     for &dyn Operator<Input = CochainImpl<D, P>, Output = O>
 where
-    O: OperatorInput,
+    O: Operand,
 {
     type Output = O;
 
@@ -485,7 +534,7 @@ where
 impl<D, P, O> std::ops::Mul<&CochainImpl<D, P>>
     for Box<dyn Operator<Input = CochainImpl<D, P>, Output = O>>
 where
-    O: OperatorInput,
+    O: Operand,
 {
     type Output = O;
 
@@ -497,7 +546,7 @@ where
 impl<D, P, O> std::ops::Mul<&CochainImpl<D, P>>
     for &Box<dyn Operator<Input = CochainImpl<D, P>, Output = O>>
 where
-    O: OperatorInput,
+    O: Operand,
 {
     type Output = O;
 
@@ -607,7 +656,8 @@ mod tests {
 
         // composed
 
-        let comp_full = mesh.star() * mesh.d() * mesh.star() * mesh.d::<0, Primal>();
+        let comp_full: ComposedOperator<crate::Cochain<0, Primal>, crate::Cochain<0, Primal>> =
+            mesh.star() * mesh.d() * mesh.star() * mesh.d();
         let boundary = mesh.boundary::<0>();
         let comp_excluded = comp_full.clone().exclude_subset(boundary);
         for (row_idx, (full_row, excluded_row)) in

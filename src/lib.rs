@@ -287,7 +287,7 @@ pub use cochain::Cochain;
 
 pub mod operator;
 #[doc(inline)]
-pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Operator};
+pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Op, Operator};
 
 // additional modules that will probably become optional when the lib gets more mature
 

@@ -14,8 +14,8 @@ struct State {
 }
 
 struct Ops {
-    p_step: Box<dyn dex::Operator<Input = Velocity, Output = Pressure>>,
-    v_step: Box<dyn dex::Operator<Input = Pressure, Output = Velocity>>,
+    p_step: dex::Op<Velocity, Pressure>,
+    v_step: dex::Op<Pressure, Velocity>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,12 +31,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wave_speed_sq = 1.0f64.powi(2);
 
     let ops = Ops {
-        p_step: Box::new(
-            (-dt * wave_speed_sq * mesh.star() * mesh.d() * mesh.star())
-                // Dirichlet boundary implemented by removing rows from the operator
-                .exclude_subset(mesh.boundary()),
-        ),
-        v_step: Box::new(mesh.d()),
+        p_step: (-dt * wave_speed_sq * mesh.star() * mesh.d() * mesh.star())
+            // Dirichlet boundary implemented by removing rows from the operator
+            .exclude_subset(mesh.boundary()),
+        v_step: mesh.d().into(),
     };
 
     let mut state = State {
