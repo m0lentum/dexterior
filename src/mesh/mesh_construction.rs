@@ -1,10 +1,10 @@
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
-use itertools::{iproduct, izip};
+use itertools::{iproduct, izip, Itertools};
 use std::rc::Rc;
 
-use super::{BoundarySimplex, Orientation, SimplexCollection, SimplicialMesh};
+use super::{SimplexCollection, SimplicialMesh};
 
 /// Construct a mesh from raw vertices and indices.
 ///
@@ -28,8 +28,6 @@ pub fn build_mesh<const MESH_DIM: usize>(
     // but they need to be constructed as Vecs first and transferred into Rcs at the end
     let mut circumcenters: [Vec<na::SVector<f64, MESH_DIM>>; MESH_DIM] =
         std::array::from_fn(|_| Vec::new());
-    // lists of boundaries that will be used to construct boundary & coboundary matrices
-    let mut boundaries: [Vec<BoundarySimplex>; MESH_DIM] = std::array::from_fn(|_| Vec::new());
 
     // the collection of 0-simplices is just the vertices in order
     // with volume 1
@@ -50,31 +48,29 @@ pub fn build_mesh<const MESH_DIM: usize>(
         simplex.sort_unstable();
     }
 
-    // rest of the levels (excluding 0-simplices, hence skip(1))
-    // are inferred from boundaries of the top-level simplices
-    let mut level_iter = izip!(simplices.iter_mut().skip(1), boundaries.iter_mut())
-        .rev()
-        .peekable();
-    while let Some((upper_simplices, upper_boundaries)) = level_iter.next() {
-        // preallocate space for boundary elements
-        upper_boundaries.resize(upper_simplices.indices.len(), BoundarySimplex::default());
+    // rest of the levels are inferred
+    // from boundaries of the top-level simplices
+    let mut level_iter = simplices.iter_mut().rev().peekable();
+    while let Some(upper_simplices) = level_iter.next() {
+        let Some(lower_simplices) = level_iter.peek_mut() else {
+            // we can't get here because of the break in the next conditional
+            unreachable!();
+        };
 
-        let Some((lower_simplices, _)) = level_iter.peek_mut() else {
+        if lower_simplices.simplex_size == 1 {
             // we're at the 1-simplex level, where boundary simplices are vertices.
-            // set boundary indices and break
-            for (indices, boundaries) in izip!(
-                upper_simplices.indices.chunks_exact_mut(2),
-                upper_boundaries.chunks_exact_mut(2)
-            ) {
-                boundaries[0] = BoundarySimplex {
-                    index: indices[0],
-                    orientation: Orientation::Backward,
-                };
-                boundaries[1] = BoundarySimplex {
-                    index: indices[1],
-                    orientation: Orientation::Forward,
-                };
+            // create the boundary map with a COO matrix for simplicity,
+            // since we don't need any deduplication logic here,
+            // and then stop
+
+            let mut boundary_coo = nas::CooMatrix::new(upper_simplices.len(), vertices.len());
+            for (simplex_idx, indices) in upper_simplices.indices.chunks_exact_mut(2).enumerate() {
+                boundary_coo.push(simplex_idx, indices[0], -1);
+                boundary_coo.push(simplex_idx, indices[1], 1);
             }
+            let boundary_map = nas::CsrMatrix::from(&boundary_coo);
+            lower_simplices.coboundary_map = boundary_map.transpose();
+            upper_simplices.boundary_map = boundary_map;
 
             break;
         };
@@ -83,16 +79,24 @@ pub fn build_mesh<const MESH_DIM: usize>(
         // we don't push directly into lower_simplices.indices
         // in order to check if a simplex already exists
         let mut curr_simplex: Vec<usize> = Vec::with_capacity(lower_simplices.simplex_size);
+        // buffers to collect the vertex indices, orientations,
+        // and corresponding upper-level simplices of boundary simplices
+        // for generating a deduplicated list of simplices and a boundary map
+        // (these correspond to the matrix S++ in the PyDEC paper section 7)
+        let boundary_count = upper_simplices.len() * upper_simplices.simplex_size;
+        let mut boundary_vert_indices: Vec<usize> =
+            Vec::with_capacity(boundary_count * lower_simplices.simplex_size);
+        let mut boundary_orientations: Vec<i8> = Vec::with_capacity(boundary_count);
+        let mut coboundary_indices: Vec<usize> = Vec::with_capacity(boundary_count);
 
-        for (indices, boundaries) in izip!(
-            upper_simplices
-                .indices
-                .chunks_exact_mut(upper_simplices.simplex_size),
-            upper_boundaries.chunks_exact_mut(upper_simplices.simplex_size)
-        ) {
+        for (simplex_idx, indices) in upper_simplices
+            .indices
+            .chunks_exact_mut(upper_simplices.simplex_size)
+            .enumerate()
+        {
             // every unique combination of vertices in the upper simplex
             // is a simplex on its boundary
-            for (exclude_idx, boundary) in boundaries.iter_mut().enumerate() {
+            for exclude_idx in 0..upper_simplices.simplex_size {
                 curr_simplex.clear();
                 for (i, vert_id) in indices.iter().enumerate() {
                     if i != exclude_idx {
@@ -104,71 +108,75 @@ pub fn build_mesh<const MESH_DIM: usize>(
                 // when defined in this order.
                 // see Discrete Differential Forms for Computational Modeling by Desbrun et al. (2006)
                 // https://dl.acm.org/doi/pdf/10.1145/1185657.1185665
-                let orientation = if exclude_idx % 2 == 0 {
-                    Orientation::Forward
-                } else {
-                    Orientation::Backward
-                };
+                let orientation = if exclude_idx % 2 == 0 { 1 } else { -1 };
 
-                // linear search through already added simplices to deduplicate.
-                // this isn't the most efficient for large meshes,
-                // but we'll optimize later if it becomes a problem
-                // (the PyDEC paper has an algorithm for this, probably use that!)
-                let already_existing_lower = lower_simplices
-                    .indices
-                    .chunks_exact(lower_simplices.simplex_size)
-                    .enumerate()
-                    .find(|(_, s)| *s == curr_simplex);
-
-                if let Some((found_idx, _)) = already_existing_lower {
-                    *boundary = BoundarySimplex {
-                        index: found_idx,
-                        orientation,
-                    };
-                } else {
-                    let new_idx = lower_simplices.len();
-                    lower_simplices.indices.extend_from_slice(&curr_simplex);
-                    *boundary = BoundarySimplex {
-                        index: new_idx,
-                        orientation,
-                    };
-                }
+                boundary_vert_indices.extend_from_slice(&curr_simplex);
+                boundary_orientations.push(orientation);
+                coboundary_indices.push(simplex_idx);
             }
         }
-    }
 
-    //
-    // build CSR matrices out of gathered boundaries
-    //
+        // sort the boundary matrix in lexicographic order by vertex indices to remove duplicates
 
-    for boundary_dim in 0..MESH_DIM {
-        let simplex_dim = boundary_dim + 1;
+        let mut sorted_boundary_indices = Vec::with_capacity(boundary_vert_indices.len());
+        let mut sorted_boundary_orientations = Vec::with_capacity(boundary_orientations.len());
+        let mut sorted_coboundary_indices = Vec::with_capacity(coboundary_indices.len());
+        for (sorted_indices, sorted_ori, sorted_cob) in izip!(
+            boundary_vert_indices.chunks_exact(lower_simplices.simplex_size),
+            &boundary_orientations,
+            &coboundary_indices,
+        )
+        .sorted_unstable_by_key(|(indices, _, _)| *indices)
+        {
+            sorted_boundary_indices.extend_from_slice(sorted_indices);
+            sorted_boundary_orientations.push(*sorted_ori);
+            sorted_coboundary_indices.push(*sorted_cob);
+        }
 
-        let row_count = simplices[simplex_dim].len();
-        let col_count = simplices[boundary_dim].len();
+        // construct boundary maps from the indices and orientations
 
-        // each row has the same number of nonzero elements,
-        // so it's simple to construct the sparsity pattern of the matrix
-        let row_offsets: Vec<usize> = (0..=row_count)
-            .map(|i| i * simplices[simplex_dim].simplex_size)
-            .collect();
-        let (col_indices, values): (Vec<usize>, Vec<Orientation>) = boundaries[boundary_dim]
-            .iter()
-            .map(|b| (b.index, b.orientation))
-            .unzip();
+        // we only need to construct the row offsets;
+        // column indices and values are directly given
+        // by `sorted_coboundary_indices` and `sorted_boundary_orientations` respectively
+        let mut row_offsets: Vec<usize> = vec![0];
 
-        let boundary_map = nas::CsrMatrix::try_from_unsorted_csr_data(
+        let mut boundary_iter = sorted_boundary_indices
+            .chunks_exact(lower_simplices.simplex_size)
+            .enumerate()
+            .peekable();
+        while let Some((simplex_idx, indices)) = boundary_iter.next() {
+            // rows in this matrix correspond to simplices of the boundary dimension.
+            // if the next simplex is a duplicate,
+            // we stay on the same row in the matrix,
+            // indicating that this simplex is a boundary of multiple simplices
+            if matches!(boundary_iter.peek(), Some((_, next_indices)) if *next_indices == indices) {
+                continue;
+            }
+            // otherwise, we move to the next row, with offsets starting at the next value
+            row_offsets.push(simplex_idx + 1);
+            // also, since this is not a duplicate, insert a new simplex into the collection
+            lower_simplices.indices.extend_from_slice(indices);
+        }
+
+        // we're building the coboundary map / boundary operator,
+        // where columns correspond to simplices on the upper level
+        // and rows to boundary simplices
+        let col_count = upper_simplices.len();
+        let row_count = lower_simplices.len();
+
+        let coboundary_map = nas::CsrMatrix::try_from_unsorted_csr_data(
             row_count,
             col_count,
             row_offsets,
-            col_indices,
-            values,
+            sorted_coboundary_indices,
+            sorted_boundary_orientations,
         )
-        .expect("Error in boundary matrix construction. This is a bug in dexterior");
+        .expect("Error in coboundary matrix construction. This is a bug in dexterior");
 
-        simplices[boundary_dim].coboundary_map = boundary_map.transpose();
-        simplices[simplex_dim].boundary_map = boundary_map;
+        upper_simplices.boundary_map = coboundary_map.transpose();
+        lower_simplices.coboundary_map = coboundary_map;
     }
+
     // set dimensions of the empty 0-boundary and MESH_DIM-coboundary matrices
     // so that row indexing works on them too
     simplices[0].boundary_map = nas::CsrMatrix::zeros(simplices[0].len(), 0);
@@ -345,13 +353,18 @@ pub fn build_mesh<const MESH_DIM: usize>(
 
     // initialize volumes to zero first,
     // we'll accumulate volumes from multiple "elementary duals" into each
-    for simplices in &mut simplices {
-        simplices.dual_volumes.resize(simplices.volumes.len(), 0.0);
+    // (outside of the `simplices` collection at first for borrow checker reasons)
+    let mut dual_volumes: [Vec<f64>; MESH_DIM] = std::array::from_fn(|_| Vec::new());
+    for (simplices, dual_vols) in izip!(&mut simplices, &mut dual_volumes) {
+        dual_vols.resize(simplices.volumes.len(), 0.0);
     }
-    // ..except the dual vertices which have a volume of 1
-    for dv in &mut simplices[MESH_DIM].dual_volumes {
-        *dv = 1.0;
-    }
+    // ..except the dual vertices which have a volume of 1.
+    // we can set this in `simplices` already.
+    // the rest will be transferred to `simplices` from the above array at the end
+    let dual_vert_count = simplices[MESH_DIM].volumes.len();
+    simplices[MESH_DIM]
+        .dual_volumes
+        .resize(dual_vert_count, 1.0);
 
     // we'll be operating on simplices of all dimensions here
     // so we have to use indices for borrow checker reasons
@@ -362,14 +375,19 @@ pub fn build_mesh<const MESH_DIM: usize>(
         // and add each of its simplices to the corresponding dual volumes
 
         let top_center = simplices[MESH_DIM].circumcenters[top_simplex_idx];
-        let start_idx = top_simplex_idx * simplices[MESH_DIM].simplex_size;
-        for boundary_idx in 0..simplices[MESH_DIM].simplex_size {
+        let first_top_idx = top_simplex_idx * simplices[MESH_DIM].simplex_size;
+        let top_indices = simplices[MESH_DIM].simplex_indices(top_simplex_idx);
+
+        for &boundary_simplex_idx in simplices[MESH_DIM]
+            .boundary_map
+            .row(top_simplex_idx)
+            .col_indices()
+        {
             // 1-dimensional elementary duals as a non-recursive special case
             // because their volumes are easy to compute
-            // (note: boundaries don't exist for 0-simplices
-            // so the index is one less than dimension)
-            let boundary_simplex_idx = boundaries[MESH_DIM - 1][start_idx + boundary_idx].index;
+
             let bound_center = simplices[MESH_DIM - 1].circumcenters[boundary_simplex_idx];
+            let bound_indices = simplices[MESH_DIM - 1].simplex_indices(boundary_simplex_idx);
             let edge = bound_center - top_center;
 
             // sign of the elementary dual volume is determined by
@@ -382,17 +400,20 @@ pub fn build_mesh<const MESH_DIM: usize>(
             let sign = if MESH_DIM <= 1 {
                 1.0
             } else {
-                // the indexing here works because each boundary simplex is constructed by omitting
-                // the `n`th vertex of the upper level simplex.
-                // barycentric coordinates for 0- and 1-simplices are constant
-                // and thus omitted from the cache, hence `MESH_DIM - 2`.
+                // because simplices are sorted, we don't know from the order
+                // which vertex is left out to get this particular boundary simplex.
+                // hence, search the indices of the bounded simplex for the one that isn't there
+                // (this is O(n^2) but cheap because we work in low dimensions)
+                let (opposite_bary_idx, _) = top_indices
+                    .iter()
+                    .find_position(|&idx| !bound_indices.contains(idx))
+                    .unwrap();
                 let opposite_bary =
-                    circumcenter_bary_coords[MESH_DIM - 2][start_idx + boundary_idx];
+                    circumcenter_bary_coords[MESH_DIM - 2][first_top_idx + opposite_bary_idx];
                 opposite_bary.signum()
             };
 
-            simplices[MESH_DIM - 1].dual_volumes[boundary_simplex_idx] +=
-                edge.magnitude().copysign(sign);
+            dual_volumes[MESH_DIM - 1][boundary_simplex_idx] += edge.magnitude().copysign(sign);
 
             // recursively traverse the rest of the simplex dimensions,
             // using the determinant formula that was also used for primal volumes
@@ -420,10 +441,10 @@ pub fn build_mesh<const MESH_DIM: usize>(
                 curr_sign: f64,
                 // denominator in the volume formula
                 edge_count_factorial: usize,
-                // collection of boundaries gathered in an earlier step
-                boundaries: &'a [Vec<BoundarySimplex>],
                 // simplex collections of the mesh
-                simplices: &'a mut [SimplexCollection<MESH_DIM>],
+                simplices: &'a [SimplexCollection<MESH_DIM>],
+                // collections the dual volumes are being accumulated into
+                dual_volumes: &'a mut [Vec<f64>],
                 // edges of the elementary dual simplex being processed
                 edges: &'a mut Vec<na::SVector<f64, MESH_DIM>>,
                 // reusable matrix allocation for volume computations
@@ -446,10 +467,14 @@ pub fn build_mesh<const MESH_DIM: usize>(
                 // add the point count of the current simplex dimension to the denominator
                 let next_factorial = s.edge_count_factorial * (dual_dim + 1);
 
-                let start_idx = s.curr_simplex_idx * s.simplices[s.curr_dim].simplex_size;
-                for boundary_idx in 0..s.simplices[s.curr_dim].simplex_size {
-                    let boundary_simplex_idx =
-                        s.boundaries[s.curr_dim - 1][start_idx + boundary_idx].index;
+                let first_vert_idx = s.curr_simplex_idx * s.simplices[s.curr_dim].simplex_size;
+                let curr_indices = s.simplices[s.curr_dim].simplex_indices(s.curr_simplex_idx);
+
+                for &boundary_simplex_idx in s.simplices[s.curr_dim]
+                    .boundary_map
+                    .row(s.curr_simplex_idx)
+                    .col_indices()
+                {
                     let bound_center =
                         s.simplices[s.curr_dim - 1].circumcenters[boundary_simplex_idx];
                     let new_edge = bound_center - s.root_vertex;
@@ -468,25 +493,30 @@ pub fn build_mesh<const MESH_DIM: usize>(
                             .determinant(),
                     ) / next_factorial as f64;
 
-                    // see earlier comment about sign
+                    // see comments in the codimension 1 special case above
                     let next_sign = if s.curr_dim <= 1 {
                         s.curr_sign
                     } else {
-                        let opposite_bary =
-                            s.circumcenter_bary_coords[s.curr_dim - 2][start_idx + boundary_idx];
+                        let bound_indices =
+                            s.simplices[s.curr_dim - 1].simplex_indices(boundary_simplex_idx);
+                        let (opposite_bary_idx, _) = curr_indices
+                            .iter()
+                            .find_position(|&idx| !bound_indices.contains(idx))
+                            .unwrap();
+                        let opposite_bary = s.circumcenter_bary_coords[s.curr_dim - 2]
+                            [first_vert_idx + opposite_bary_idx];
                         s.curr_sign * opposite_bary.signum()
                     };
 
-                    s.simplices[s.curr_dim - 1].dual_volumes[boundary_simplex_idx] +=
-                        vol.copysign(next_sign);
+                    s.dual_volumes[s.curr_dim - 1][boundary_simplex_idx] += vol.copysign(next_sign);
 
                     traverse(TraversalState {
                         curr_dim: s.curr_dim - 1,
                         curr_simplex_idx: boundary_simplex_idx,
                         curr_sign: next_sign,
                         edge_count_factorial: next_factorial,
-                        boundaries: s.boundaries,
                         simplices: s.simplices,
+                        dual_volumes: s.dual_volumes,
                         edges: s.edges,
                         vol_mat: s.vol_mat,
                         root_vertex: s.root_vertex,
@@ -502,14 +532,19 @@ pub fn build_mesh<const MESH_DIM: usize>(
                 curr_simplex_idx: boundary_simplex_idx,
                 curr_sign: sign,
                 edge_count_factorial: 1,
-                boundaries: &boundaries,
-                simplices: &mut simplices,
+                simplices: &simplices,
+                dual_volumes: &mut dual_volumes,
                 edges: &mut edges,
                 vol_mat: &mut vol_mat,
                 root_vertex: &top_center,
                 circumcenter_bary_coords: &circumcenter_bary_coords,
             });
         }
+    }
+
+    // store the accumulated dual volumes
+    for (simplices, dual_vols) in izip!(&mut simplices, dual_volumes) {
+        simplices.dual_volumes = dual_vols;
     }
 
     SimplicialMesh {
@@ -537,7 +572,6 @@ type Vec3 = na::SVector<f64, 3>;
 ///
 /// This is public for visibility in doctests, which frequently need an instance of a mesh.
 /// It is not meant to be used by users and thus hidden from docs.
-/// Eventually there should be a mesh generator API that can replace this.
 #[doc(hidden)]
 pub fn tiny_mesh_2d() -> SimplicialMesh<2> {
     let vertices = vec![
@@ -574,7 +608,6 @@ pub fn tiny_mesh_2d() -> SimplicialMesh<2> {
 ///
 /// This is public for visibility in doctests, which frequently need an instance of a mesh.
 /// It is not meant to be used by users and thus hidden from docs.
-/// Eventually there should be a mesh generator API that can replace this.
 #[doc(hidden)]
 pub fn tiny_mesh_3d() -> SimplicialMesh<3> {
     let vertices = vec![
@@ -606,13 +639,6 @@ mod tests {
 
     /// Lower-dimensional simplices, circumcenters, volumes etc.
     /// are generated correctly for a simple 2d mesh.
-    ///
-    /// Note: this may break spuriously if the order simplices are generated in is changed.
-    /// If this happens, instead of manually fixing the order tested here,
-    /// it may be better to modify this test to check the presence of simplices
-    /// (and absence of unintended ones) independently of order.
-    /// Boundaries become tricky if you do that,
-    /// but should be doable by e.g. testing against vertex positions instead of indices.
     #[test]
     fn tiny_2d_mesh_is_correct() {
         let mesh = tiny_mesh_2d();
@@ -621,12 +647,11 @@ mod tests {
 
         #[rustfmt::skip]
         let expected_1_simplices = vec![
-            2,3, 0,3, 0,2,
-            1,3, 0,1,
-            3,4, 1,4,
-            3,5, 2,5,
-            5,6, 3,6,
-            4,6,
+            0,1, 0,2, 0,3,
+            1,3, 1,4,
+            2,3, 2,5,
+            3,4, 3,5, 3,6,
+            4,6, 5,6,
         ];
         assert_eq!(
             expected_1_simplices, mesh.simplices[1].indices,
@@ -635,23 +660,22 @@ mod tests {
 
         // boundaries
 
-        // orientations as integers for brevity
         #[rustfmt::skip]
         let expected_2_boundaries = vec![
-            (0, 1), (1, -1), (2, 1),
-            (1, -1), (3, 1), (4, 1),
-            (3, 1), (5, 1), (6, -1),
-            (0, 1), (7, 1), (8, -1),
-            (7, 1), (9, 1), (10, -1),
-            (5, 1), (10, -1), (11, 1),
+            (1, 1), (2, -1), (5, 1),
+            (0, 1), (2, -1), (3, 1),
+            (3, 1), (4, -1), (7, 1),
+            (5, 1), (6, -1), (8, 1),
+            (8, 1), (9, -1), (11, 1),
+            (7, 1), (9, -1), (10, 1),
         ];
-        let actual_2_boundaries: Vec<(usize, isize)> = mesh.simplices[2]
+        let actual_2_boundaries: Vec<(usize, i8)> = mesh.simplices[2]
             .boundary_map
             .row_iter()
             .flat_map(|row| {
                 izip!(
-                    row.col_indices().iter().cloned(),
-                    row.values().iter().map(|o| *o as isize)
+                    row.col_indices().iter().copied(),
+                    row.values().iter().copied()
                 )
                 .collect::<Vec<_>>()
             })
@@ -666,7 +690,7 @@ mod tests {
 
         let expected_mesh_boundaries: [fb::FixedBitSet; 3] = [
             [0, 1, 2, 4, 5, 6].into_iter().collect(),
-            [2, 4, 6, 8, 9, 11].into_iter().collect(),
+            [0, 1, 4, 6, 10, 11].into_iter().collect(),
             fb::FixedBitSet::with_capacity(6),
         ];
         for (dim, (expected, actual)) in izip!(
@@ -688,12 +712,11 @@ mod tests {
         let horiz = 1.0;
         #[rustfmt::skip]
         let expected_1_volumes = vec![
-            horiz, diag, diag,
-            diag, horiz,
-            horiz, diag,
-            diag, diag,
-            horiz, diag,
-            diag,
+            horiz,
+            diag, diag, diag, diag,
+            horiz, diag, horiz,
+            diag, diag, diag,
+            horiz,
         ];
         let actual_1_volumes = &mesh.simplices[1].volumes;
         let all_approx_eq =
@@ -769,12 +792,11 @@ mod tests {
         let dual_diag = f64::sqrt(5.0) / 4.0;
         #[rustfmt::skip]
         let expected_1_dual_vols = vec![
-            0.75, dual_diag, 0.5 * dual_diag,
-            dual_diag, 0.375,
-            0.75, 0.5 * dual_diag,
+            0.375, 0.5 * dual_diag, dual_diag, 
             dual_diag, 0.5 * dual_diag,
-            0.375, dual_diag,
-            0.5 * dual_diag,
+            0.75, 0.5 * dual_diag,
+            0.75, dual_diag, dual_diag,
+            0.5 * dual_diag, 0.375, 
         ];
         let actual_1_dual_vols = &mesh.simplices[1].dual_volumes;
         let all_approx_eq =
@@ -819,36 +841,35 @@ mod tests {
 
         #[rustfmt::skip]
         let expected_2_simplices = vec![
-            1,2,4, 0,2,4, 0,1,4, 0,1,2,
-            1,2,5, 0,2,5, 0,1,5,
-            2,3,4, 1,3,4, 1,2,3,
-            2,3,5, 1,3,5,
+            0,1,2, 0,1,4, 0,1,5, 0,2,4, 0,2,5,
+            1,2,3, 1,2,4, 1,2,5, 1,3,4, 1,3,5,
+            2,3,4, 2,3,5,
         ];
         assert_eq!(
             expected_2_simplices, mesh.simplices[2].indices,
-            "incorrect 1-simplices"
+            "incorrect 2-simplices"
         );
 
         #[rustfmt::skip]
         let expected_1_simplices = vec![
-            2,4, 1,4, 1,2, 0,4, 0,2, 0,1,
-            2,5, 1,5, 0,5,
-            3,4, 2,3, 1,3,
-            3,5,
+            0,1, 0,2, 0,4, 0,5,
+            1,2, 1,3, 1,4, 1,5, 
+            2,3, 2,4, 2,5,
+            3,4, 3,5,
         ];
         assert_eq!(
             expected_1_simplices, mesh.simplices[1].indices,
-            "incorrect 2-simplices"
+            "incorrect 1-simplices"
         );
 
         // boundaries
 
         #[rustfmt::skip]
         let expected_3_boundaries = vec![
-            (0, 1), (1, -1), (2, 1), (3, -1),
-            (3, -1), (4, 1), (5, -1), (6, 1),
-            (0, 1), (7, 1), (8, -1), (9, -1),
-            (4, 1), (9, -1), (10, 1), (11, -1),
+            (0, -1), (1, 1), (3, -1), (6, 1),
+            (0, -1), (2, 1), (4, -1), (7, 1),
+            (5, -1), (6, 1), (8, -1), (10, 1),
+            (5, -1), (7, 1), (9, -1), (11, 1),
         ];
         let actual_3_boundaries: Vec<(usize, isize)> = mesh.simplices[3]
             .boundary_map
@@ -871,10 +892,10 @@ mod tests {
 
         let expected_mesh_boundaries: [fb::FixedBitSet; 4] = [
             [0, 1, 2, 3, 4, 5].into_iter().collect(),
-            [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+            [0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]
                 .into_iter()
                 .collect(),
-            [1, 2, 5, 6, 7, 8, 10, 11].into_iter().collect(),
+            [1, 2, 3, 4, 8, 9, 10, 11].into_iter().collect(),
             fb::FixedBitSet::with_capacity(4),
         ];
         for (dim, (expected, actual)) in izip!(
@@ -891,9 +912,7 @@ mod tests {
 
         // there are so many 2-simplex boundaries on this one
         // I can't be bothered to write them all out,
-        // I'll trust the 2D test that these are correct for now.
-        // should probably try to architect this test in a way
-        // that doesn't explicitly list all indices
+        // I'll trust the 2D test that these are correct
 
         // primal volumes
 
@@ -902,10 +921,10 @@ mod tests {
         use std::f64::consts::SQRT_2;
         #[rustfmt::skip]
         let expected_1_volumes = vec![
-            diag, diag, 1.0, SQRT_2, diag, diag,
-            diag, diag, SQRT_2,
-            SQRT_2, diag, diag,
-            SQRT_2,
+            diag, diag, SQRT_2, SQRT_2,
+            1.0, diag, diag, diag,
+            diag, diag, diag,
+            SQRT_2, SQRT_2,
         ];
         let actual_1_volumes = &mesh.simplices[1].volumes;
         let all_approx_eq =
@@ -920,8 +939,11 @@ mod tests {
         let inner = 0.5;
         // this one computed by hand on paper, just trust me bro
         let outer = diag * (f64::sqrt(30.0) / 5.0) / 2.0;
+        #[rustfmt::skip]
         let expected_2_volumes = vec![
-            inner, outer, outer, inner, inner, outer, outer, outer, outer, inner, outer, outer,
+            inner, outer, outer, outer, outer,
+            inner, inner, inner, outer, outer,
+            outer, outer,
         ];
         let actual_2_volumes = &mesh.simplices[2].volumes;
         let all_approx_eq =
@@ -1025,9 +1047,8 @@ mod tests {
         let inside = 0.75;
         #[rustfmt::skip]
         let expected_2_dual_vols = vec![
-            inside, boundary, boundary, inside,
-            inside, boundary, boundary,
-            boundary, boundary, inside,
+            inside, boundary, boundary, boundary, boundary,
+            inside, inside, inside, boundary, boundary,
             boundary, boundary,
         ];
         let actual_2_dual_vols = &mesh.simplices[2].dual_volumes;
@@ -1038,12 +1059,13 @@ mod tests {
             "expected dual 2-volumes {expected_2_dual_vols:?}, got {actual_2_dual_vols:?}"
         );
 
+        // these were computed manually with a lot of Wolfram Alpha
         #[rustfmt::skip]
         let expected_1_dual_vols = vec![
-            0.1514008, 0.1514008, 0.75 * 0.75, 0.0147308, 0.1514008, 0.1514008,
-            0.1514008, 0.1514008, 0.0147308,
-            0.0147308, 0.1514008, 0.1514008,
-            0.0147308,
+            0.1514008, 0.1514008, 0.0147308, 0.0147308,
+            0.75 * 0.75, 0.1514008, 0.1514008, 0.1514008,
+            0.1514008, 0.1514008, 0.1514008,
+            0.0147308, 0.0147308,
         ];
         let actual_1_dual_vols = &mesh.simplices[1].dual_volumes;
         let all_approx_eq = izip!(&expected_1_dual_vols, actual_1_dual_vols)
@@ -1086,10 +1108,10 @@ mod tests {
         );
 
         let expected_1_dual_vols = [
+            f64::sqrt(5.0) / 2.0,
+            f64::sqrt(5.0) / 2.0,
             // this one should have one negative and one positive elementary dual
             0.0,
-            f64::sqrt(5.0) / 2.0,
-            f64::sqrt(5.0) / 2.0,
             f64::sqrt(5.0) / 4.0,
             f64::sqrt(5.0) / 4.0,
         ];
@@ -1133,15 +1155,15 @@ mod tests {
         // this one has circumcenters outside the entire mesh,
         // which generates some negative dual volumes
         let expected_2_dual_vols = [
-            -0.75,
-            4.0 / 3.0,
-            4.0 / 3.0,
             // this is the triangle in the middle,
             // which has two identical elementary duals with opposite signs
             0.0,
+            4.0 / 3.0,
+            0.9274260335029676,
+            4.0 / 3.0,
+            0.9274260335029676,
             -0.75,
-            0.9274260335029676,
-            0.9274260335029676,
+            -0.75,
         ];
         let actual_2_dual_vols = &mesh_3d.simplices[2].dual_volumes;
         let all_approx_eq =
@@ -1152,15 +1174,15 @@ mod tests {
         );
 
         let expected_1_dual_vols = [
-            0.124226 - 0.419263,
-            0.124226 - 0.419263,
-            0.0,
+            0.576763,
+            0.576763,
             0.628539,
-            0.576763,
-            0.576763,
-            0.056568 - 0.209631,
-            0.056568 - 0.209631,
             0.417219,
+            0.0,
+            0.124226 - 0.419263,
+            0.056568 - 0.209631,
+            0.124226 - 0.419263,
+            0.056568 - 0.209631,
         ];
         let actual_1_dual_vols = &mesh_3d.simplices[1].dual_volumes;
         let all_approx_eq = izip!(&expected_1_dual_vols, actual_1_dual_vols)

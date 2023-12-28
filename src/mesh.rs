@@ -34,17 +34,18 @@ pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     simplex_size: usize,
     /// indices stored in a flat Vec to avoid generics for dimension
     pub indices: Vec<usize>,
-    /// matrix where the rows correspond to DIM-simplices
-    /// and the columns to (DIM-1) simplices.
+    /// matrix where the rows correspond to DIM-simplices,
+    /// the columns to (DIM-1) simplices,
+    /// and the values of -1 or 1 to the relative orientation of the boundary.
     /// this matrix is the coboundary operator for (DIM-1) simplices,
     /// but it's stored with DIM-simplices
     /// because its rows can be efficiently used to navigate to boundary simplices.
-    boundary_map: nas::CsrMatrix<Orientation>,
+    boundary_map: nas::CsrMatrix<i8>,
     /// transpose of the DIM+1-dimensional collection's `boundary_map`,
     /// stored separately for efficient access.
     /// the rows in this correspond to DIM-simplices again,
     /// and the columns to DIM+1-simplices.
-    coboundary_map: nas::CsrMatrix<Orientation>,
+    coboundary_map: nas::CsrMatrix<i8>,
     /// simplices on the boundary of the mesh.
     mesh_boundary: fb::FixedBitSet,
     /// circumcenters Rc'd so that 0-simplices
@@ -79,21 +80,12 @@ impl<const DIM: usize> SimplexCollection<DIM> {
     fn len(&self) -> usize {
         self.indices.len() / self.simplex_size
     }
-}
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct BoundarySimplex {
-    /// index of the simplex in the storage
-    index: usize,
-    /// orientation of the simplex relative to the simplex it bounds
-    orientation: Orientation,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Orientation {
-    #[default]
-    Forward = 1,
-    Backward = -1,
+    /// Get the slice of vertex indices corresponding to a single simplex.
+    fn simplex_indices(&self, simplex_idx: usize) -> &[usize] {
+        let start_idx = simplex_idx * self.simplex_size;
+        &self.indices[start_idx..start_idx + self.simplex_size]
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,7 +130,6 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         SimplexView {
             vertices: &self.vertices,
             indices: &self.simplices[DIM].indices[idx_range],
-            boundaries: self.simplices[DIM].boundary_map.row(idx),
         }
     }
 
@@ -398,7 +389,6 @@ impl MeshPrimality for Dual {
 
 pub struct SimplexView<'a, const DIM: usize, const MESH_DIM: usize> {
     indices: &'a [usize],
-    boundaries: nas::csr::CsrRow<'a, Orientation>,
     // view into all vertices of the mesh,
     // indexed into by values in the `indices` slice
     vertices: &'a [na::SVector<f64, MESH_DIM>],

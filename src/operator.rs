@@ -577,12 +577,11 @@ mod tests {
         // in `crate::mesh::tests::tiny_2d_mesh_is_correct`
         #[rustfmt::skip]
         let expected_c1 = na::DVector::from_vec(vec![
-            3.0 - 2.0, 3.0 - 0.0, 2.0 - 0.0,
-            3.0 - 1.0, 1.0 - 0.0,
-            4.0 - 3.0, 4.0 - 1.0,
-            5.0 - 3.0, 5.0 - 2.0,
-            6.0 - 5.0, 6.0 - 3.0,
-            6.0 - 4.0,
+            1.-0., 2.-0., 3.-0.,
+            3.-1., 4.-1.,
+            3.-2., 5.-2.,
+            4.-3., 5.-3., 6.-3.,
+            6.-4., 6.-5.,
         ]);
         assert_eq!(c1.values, expected_c1, "d_0 gave unexpected results");
 
