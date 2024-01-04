@@ -4,7 +4,7 @@ use nalgebra_sparse as nas;
 use itertools::{iproduct, izip, Itertools};
 use std::rc::Rc;
 
-use super::{SimplexCollection, SimplicialMesh};
+use super::{BoundingBox, SimplexCollection, SimplicialMesh};
 
 /// Construct a mesh from raw vertices and indices.
 ///
@@ -547,9 +547,34 @@ pub fn build_mesh<const MESH_DIM: usize>(
         simplices.dual_volumes = dual_vols;
     }
 
+    //
+    // compute bounding box of the mesh
+    //
+
+    let mut bounds = BoundingBox {
+        min: na::SVector::from_element(f64::MAX),
+        max: na::SVector::from_element(f64::MIN),
+    };
+
+    for vert in &*vertices {
+        for (coord, min, max) in izip!(
+            vert.as_slice(),
+            bounds.min.data.as_mut_slice(),
+            bounds.max.data.as_mut_slice()
+        ) {
+            if coord < min {
+                *min = *coord;
+            }
+            if coord > max {
+                *max = *coord;
+            }
+        }
+    }
+
     SimplicialMesh {
         vertices,
         simplices,
+        bounds,
     }
 }
 

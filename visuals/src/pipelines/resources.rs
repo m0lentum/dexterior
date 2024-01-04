@@ -50,6 +50,8 @@ impl From<na::Vector2<f64>> for Position {
 #[derive(Clone, Copy, Debug, encase::ShaderType)]
 struct CameraUniforms {
     view_proj: na::Matrix4<f32>,
+    // camera basis vectors used for drawing billboards in the line renderer
+    basis: na::Matrix3<f32>,
 }
 
 /// Storage buffer for generic vector data and color mapping parameters.
@@ -87,9 +89,9 @@ impl SharedResources {
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
-        let camera_uniform_buf_size = size_of::<CameraUniforms>() as wgpu::BufferAddress;
+        let camera_uniform_buf_size = <CameraUniforms as encase::ShaderType>::min_size();
         let camera_uniform_buf = window.device.create_buffer(&wgpu::BufferDescriptor {
-            size: camera_uniform_buf_size,
+            size: camera_uniform_buf_size.get(),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             label: Some("camera"),
             mapped_at_creation: false,
@@ -173,7 +175,7 @@ impl SharedResources {
                             ty: wgpu::BindingType::Buffer {
                                 ty: wgpu::BufferBindingType::Uniform,
                                 has_dynamic_offset: false,
-                                min_binding_size: wgpu::BufferSize::new(camera_uniform_buf_size),
+                                min_binding_size: Some(camera_uniform_buf_size),
                             },
                             count: None,
                         },
@@ -273,6 +275,7 @@ impl SharedResources {
     pub fn upload_frame_uniforms(&self, camera: &Camera, ctx: &mut RenderContext) {
         let uniforms = CameraUniforms {
             view_proj: camera.view_projection_matrix(),
+            basis: camera.pose.isometry.rotation.to_rotation_matrix().into(),
         };
         let mut uniform_bytes = encase::UniformBuffer::new(Vec::new());
         uniform_bytes.write(&uniforms).unwrap();

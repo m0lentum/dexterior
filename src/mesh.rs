@@ -26,6 +26,16 @@ pub struct SimplicialMesh<const DIM: usize> {
     pub vertices: Rc<[na::SVector<f64, DIM>]>,
     /// Storage for each dimension of simplex in the mesh.
     pub(crate) simplices: Vec<SimplexCollection<DIM>>,
+    bounds: BoundingBox<DIM>,
+}
+
+/// An axis-aligned bounding box.
+#[derive(Clone, Copy, Debug)]
+pub struct BoundingBox<const DIM: usize> {
+    /// The minimum (bottom left in 2D) corner of the box.
+    pub min: na::SVector<f64, DIM>,
+    /// The maximum (top right in 2D) corner of the box.
+    pub max: na::SVector<f64, DIM>,
 }
 
 #[derive(Clone, Debug)]
@@ -150,6 +160,12 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
     {
         self.simplices[DIM].indices.chunks_exact(DIM + 1)
+    }
+
+    /// Get a bounding box enclosing the entire mesh.
+    #[inline]
+    pub fn bounds(&self) -> BoundingBox<MESH_DIM> {
+        self.bounds
     }
 
     /// Create a new cochain with a value of zero

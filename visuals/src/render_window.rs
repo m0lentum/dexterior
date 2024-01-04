@@ -1,6 +1,5 @@
 //! Low-level resources for window creation and rendering.
 
-use itertools::{Itertools, MinMaxResult};
 use winit::{
     event::{Event, VirtualKeyCode, WindowEvent},
     event_loop::EventLoop,
@@ -250,19 +249,10 @@ impl RenderWindow {
         // (3D cameras will need different construction once I get around to that,
         // think about how to abstract this.
         // also it could be fun to allow looking at a 2D mesh with a 3D camera)
-        let bounds_x = match anim.mesh.vertices.iter().map(|v| v.x).minmax() {
-            MinMaxResult::NoElements => [0.0, 0.0],
-            MinMaxResult::OneElement(x) => [x, x],
-            MinMaxResult::MinMax(l, u) => [l, u],
-        };
-        let bounds_y = match anim.mesh.vertices.iter().map(|v| v.y).minmax() {
-            MinMaxResult::NoElements => [0.0, 0.0],
-            MinMaxResult::OneElement(y) => [y, y],
-            MinMaxResult::MinMax(l, u) => [l, u],
-        };
+        let b = anim.mesh.bounds();
         let camera = super::camera::Camera::new_2d(
-            na::Vector2::new(bounds_x[0] as f32, bounds_y[0] as f32),
-            na::Vector2::new(bounds_x[1] as f32, bounds_y[1] as f32),
+            na::Vector2::new(b.min.x as f32, b.min.y as f32),
+            na::Vector2::new(b.max.x as f32, b.max.y as f32),
             1.0,
         );
 
@@ -281,10 +271,12 @@ impl RenderWindow {
                     let mut painter = pl::Painter {
                         ctx: &mut ctx,
                         rend: &mut renderer,
+                        mesh: anim.mesh,
                     };
                     (anim.step)(&mut painter);
 
                     ctx.queue.submit(Some(ctx.encoder.finish()));
+                    renderer.end_frame();
                     ctx.surface_tex.present();
                 }
                 Event::WindowEvent { event, .. } => {

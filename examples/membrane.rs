@@ -3,6 +3,7 @@
 
 use dexterior as dex;
 use dexterior_visuals as dv;
+use nalgebra as na;
 
 type Pressure = dex::Cochain<0, dex::Primal>;
 type Velocity = dex::Cochain<1, dex::Primal>;
@@ -57,6 +58,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             draw.vertex_colors(&state.p);
             draw.wireframe();
+            // just testing
+            draw.line_strip(&[
+                na::Vector3::new(2.5, 0.5, 0.0),
+                na::Vector3::new(3.5, 1.0, 0.0),
+                na::Vector3::new(2.5, 1.0, 0.0),
+                na::Vector3::new(3.5, 1.5, 0.0),
+                na::Vector3::new(3.0, 3.0, 0.0),
+            ]);
+            draw.line_list(&[
+                na::Vector3::new(0.5, 0.5, 0.0),
+                na::Vector3::new(1.5, 1.0, 0.0),
+                na::Vector3::new(0.5, 1.0, 0.0),
+                na::Vector3::new(1.5, 1.5, 0.0),
+            ]);
+            draw.axes_2d();
         },
     });
 
