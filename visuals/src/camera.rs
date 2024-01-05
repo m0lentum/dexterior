@@ -75,8 +75,22 @@ impl Camera {
         }
     }
 
-    pub(crate) fn view_projection_matrix(&self) -> na::Matrix4<f32> {
-        // TODO: adapt to changing window aspect ratio to avoid stretching
-        na::Matrix4::from(self.projection) * na::Matrix4::from(self.pose.inverse())
+    pub(crate) fn view_projection_matrix(&self, viewport_size: (u32, u32)) -> na::Matrix4<f32> {
+        let mut view_proj =
+            na::Matrix4::from(self.projection) * na::Matrix4::from(self.pose.inverse());
+        // compute a nonuniform scaling
+        // that will keep the entire mesh in view without stretching
+        let vp_aspect = viewport_size.0 as f32 / viewport_size.1 as f32;
+        if vp_aspect >= 1. {
+            // window is wider in the x direction,
+            // so scale to leave space around the horizontal edges
+            view_proj.row_mut(0).scale_mut(1. / vp_aspect);
+        } else {
+            // taller in the y direction,
+            // scale to leave space on the top and bottom
+            view_proj.row_mut(1).scale_mut(vp_aspect);
+        }
+
+        view_proj
     }
 }

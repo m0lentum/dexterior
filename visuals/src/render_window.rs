@@ -168,7 +168,7 @@ impl RenderWindow {
     }
 
     /// Reconfigure the swapchain and recreate the MSAA texture when the window size has changed.
-    pub(crate) fn resize_swapchain(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+    fn resize_swapchain(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size == self.window_size() {
             return;
         }
@@ -229,6 +229,7 @@ impl RenderWindow {
             encoder,
             device: &self.device,
             queue: &mut self.queue,
+            viewport_size: (self.surface_config.width, self.surface_config.height),
         }
     }
 
@@ -322,6 +323,7 @@ pub(crate) struct RenderContext<'a> {
     pub encoder: wgpu::CommandEncoder,
     pub device: &'a wgpu::Device,
     pub queue: &'a mut wgpu::Queue,
+    pub viewport_size: (u32, u32),
 }
 
 impl<'a> RenderContext<'a> {

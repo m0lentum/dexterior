@@ -274,7 +274,7 @@ impl SharedResources {
 
     pub fn upload_frame_uniforms(&self, camera: &Camera, ctx: &mut RenderContext) {
         let uniforms = CameraUniforms {
-            view_proj: camera.view_projection_matrix(),
+            view_proj: camera.view_projection_matrix(ctx.viewport_size),
             basis: camera.pose.isometry.rotation.to_rotation_matrix().into(),
         };
         let mut uniform_bytes = encase::UniformBuffer::new(Vec::new());
