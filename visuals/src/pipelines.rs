@@ -189,7 +189,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
             let bound_size = bounds.max[axis_idx] as f32 - initial_tick;
             let tick_count = (bound_size / TICK_INTERVAL) as usize;
 
-            for tick_idx in 1..=tick_count {
+            for tick_idx in 0..=tick_count {
                 let mut tick_points = [[0., 0., 0.], [0., 0., 0.]];
 
                 let tick_coord = initial_tick + tick_idx as f32 * TICK_INTERVAL;
