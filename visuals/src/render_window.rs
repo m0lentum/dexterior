@@ -32,7 +32,7 @@ pub enum WindowInitError {
 pub struct WindowParams {
     /// Initial width of the window in pixels. Default: 800.
     pub width: usize,
-    /// Initial height of the window in pixels. Default: 600.
+    /// Initial height of the window in pixels. Default: 800.
     pub height: usize,
     /// Samples used for anti-aliasing. Default: 4.
     pub msaa_samples: u32,
@@ -42,7 +42,7 @@ impl Default for WindowParams {
     fn default() -> Self {
         Self {
             width: 800,
-            height: 600,
+            height: 800,
             msaa_samples: 4,
         }
     }
