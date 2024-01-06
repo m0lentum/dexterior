@@ -1,6 +1,40 @@
-use std::{borrow::Cow, mem::size_of};
+use nalgebra as na;
+use std::borrow::Cow;
 
-use crate::render_window::RenderContext;
+use crate::{camera::Camera, render_window::RenderContext};
+
+//
+// user-facing parameters
+//
+
+/// Parameters for rendering operations that draw lines.
+#[derive(Clone, Copy, Debug)]
+pub struct LineParameters {
+    /// Width of the line, either in pixels or in world units.
+    /// Default: 1 screenspace pixel.
+    pub width: LineWidth,
+    /// Color of the line in linear sRGB space.
+    /// Default: `palette::named::BLACK.into()`.
+    pub color: palette::LinSrgb,
+}
+
+impl Default for LineParameters {
+    fn default() -> Self {
+        Self {
+            width: LineWidth::ScreenPixels(1.0),
+            color: palette::named::BLACK.into(),
+        }
+    }
+}
+
+/// The width of a line and which space it's defined in.
+#[derive(Clone, Copy, Debug)]
+pub enum LineWidth {
+    /// Keep a constant width in screen space regardless of zoom level and distance.
+    ScreenPixels(f32),
+    /// Set the width in world space.
+    WorldUnits(f32),
+}
 
 /// How to interpret point data given to the line renderer.
 #[derive(Clone, Copy, Debug)]
@@ -10,6 +44,10 @@ pub enum LineDrawingMode {
     /// Every point is connected together with a line segment.
     Strip,
 }
+
+//
+// renderer
+//
 
 /// A versatile instanced line renderer.
 ///
@@ -22,14 +60,12 @@ pub(crate) struct LinePipeline {
     point_pipeline: wgpu::RenderPipeline,
     // geometry for segments and joins
     primitives: Primitives,
-    // global resources used for all steps of the process
-    params_uniform_buf: wgpu::Buffer,
-    params_bind_group: wgpu::BindGroup,
-    // list of instance buffers,
+    // list of instance buffers and uniform bind groups,
     // one for each set of lines drawn within a frame,
     // to be able to draw all of them
     // without submitting commands for buffer writes between each draw
     instance_bufs: Vec<DynamicInstanceBuffer>,
+    params_bind_group_layout: wgpu::BindGroupLayout,
     // keep track of how many draw calls have been made this frame
     // to decide which instance buffer to use
     next_draw_index: usize,
@@ -46,6 +82,9 @@ struct Primitives {
 #[derive(Clone, Copy, Debug, encase::ShaderType)]
 struct ParamUniforms {
     width: f32,
+    // note: this can't be a [f32; 4]
+    // because encase will interpret it as a shader-side array
+    color: na::Vector4<f32>,
 }
 
 /// A vertex in the instance geometry.
@@ -75,14 +114,7 @@ impl LinePipeline {
 
         // uniforms
 
-        let params_buf_size = size_of::<ParamUniforms>() as wgpu::BufferAddress;
-        let params_uniform_buf = window.device.create_buffer(&wgpu::BufferDescriptor {
-            label,
-            size: params_buf_size,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
+        let params_buf_size = <ParamUniforms as encase::ShaderType>::min_size();
         let params_bind_group_layout =
             window
                 .device
@@ -90,24 +122,15 @@ impl LinePipeline {
                     label,
                     entries: &[wgpu::BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: wgpu::BufferSize::new(params_buf_size),
+                            min_binding_size: Some(params_buf_size),
                         },
                         count: None,
                     }],
                 });
-
-        let params_bind_group = window.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label,
-            layout: &params_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: params_uniform_buf.as_entire_binding(),
-            }],
-        });
 
         // pipeline
 
@@ -218,9 +241,8 @@ impl LinePipeline {
             strip_pipeline: pipeline(InstanceStepMode::LineStrip),
             point_pipeline: pipeline(InstanceStepMode::Points),
             primitives: Self::generate_instance_geometry(&window.device),
-            params_uniform_buf,
-            params_bind_group,
             instance_bufs: Vec::new(),
+            params_bind_group_layout,
             next_draw_index: 0,
         }
     }
@@ -262,16 +284,30 @@ impl LinePipeline {
 
     /// Upload an instance buffer containing segment endpoints to the GPU,
     /// returning the buffer that was written to.
-    fn upload_line_segments(&mut self, ctx: &mut RenderContext, points: &[[f32; 3]]) {
+    fn upload_draw_data(
+        &mut self,
+        ctx: &mut RenderContext,
+        params: ParamUniforms,
+        points: &[[f32; 3]],
+    ) {
+        let mut params_bytes = encase::UniformBuffer::new(Vec::new());
+        params_bytes.write(&params).unwrap();
+
         if self.next_draw_index >= self.instance_bufs.len() {
             // this is more than we've drawn in a frame before,
             // add another instance buffer
             self.instance_bufs.push(DynamicInstanceBuffer::write_new(
                 ctx.device,
+                &self.params_bind_group_layout,
+                &params_bytes.into_inner(),
                 bytemuck::cast_slice(points),
             ));
         } else {
-            self.instance_bufs[self.next_draw_index].write(ctx, bytemuck::cast_slice(points));
+            self.instance_bufs[self.next_draw_index].write(
+                ctx,
+                &params_bytes.into_inner(),
+                bytemuck::cast_slice(points),
+            );
         }
     }
 
@@ -284,29 +320,29 @@ impl LinePipeline {
         &mut self,
         res: &super::SharedResources,
         ctx: &mut RenderContext,
+        camera: &Camera,
+        params: LineParameters,
         mode: LineDrawingMode,
         points: &[[f32; 3]],
     ) {
-        // upload line segments
+        // upload line segments and uniforms
 
-        self.upload_line_segments(ctx, points);
-
-        // upload uniforms
-
-        let params = ParamUniforms {
-            // TODO: take this as a parameter from the user
-            width: 0.05,
+        let params_unif = ParamUniforms {
+            width: match params.width {
+                LineWidth::WorldUnits(w) => w,
+                LineWidth::ScreenPixels(p) => p * camera.pixel_size(ctx.viewport_size),
+            },
+            color: na::Vector4::new(params.color.red, params.color.green, params.color.blue, 1.0),
         };
-        let mut params_bytes = encase::UniformBuffer::new(Vec::new());
-        params_bytes.write(&params).unwrap();
-        ctx.queue
-            .write_buffer(&self.params_uniform_buf, 0, &params_bytes.into_inner());
+        self.upload_draw_data(ctx, params_unif, points);
+
+        let instance = &self.instance_bufs[self.next_draw_index];
 
         // setup a render pass
 
         let mut pass = ctx.pass("lines");
         pass.set_bind_group(0, &res.frame_bind_group, &[]);
-        pass.set_bind_group(1, &self.params_bind_group, &[]);
+        pass.set_bind_group(1, &instance.params_bind_group, &[]);
 
         // draw segments
 
@@ -324,7 +360,7 @@ impl LinePipeline {
             self.primitives.segment.index_buf.slice(..),
             wgpu::IndexFormat::Uint16,
         );
-        pass.set_vertex_buffer(1, self.instance_bufs[self.next_draw_index].buf.slice(..));
+        pass.set_vertex_buffer(1, instance.segment_buf.slice(..));
 
         pass.draw_indexed(
             0..self.primitives.segment.index_count,
@@ -352,6 +388,10 @@ impl LinePipeline {
         self.next_draw_index += 1;
     }
 }
+
+//
+// utility types
+//
 
 /// Vertex and index buffer to hold a mesh instance.
 struct InstanceGeometry {
@@ -387,32 +427,67 @@ impl InstanceGeometry {
 /// We keep a list of these for drawing multiple lines
 /// without pausing to submit commands in between.
 struct DynamicInstanceBuffer {
-    buf: wgpu::Buffer,
+    segment_buf: wgpu::Buffer,
     capacity: usize,
+    params_buf: wgpu::Buffer,
+    params_bind_group: wgpu::BindGroup,
 }
 
 impl DynamicInstanceBuffer {
     /// Write instance data to a new buffer.
-    fn write_new(device: &wgpu::Device, data: &[u8]) -> Self {
+    fn write_new(
+        device: &wgpu::Device,
+        params_bg_layout: &wgpu::BindGroupLayout,
+        params_data: &[u8],
+        segment_data: &[u8],
+    ) -> Self {
         use wgpu::util::DeviceExt;
-        let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let segment_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("line segments"),
-            contents: data,
+            contents: segment_data,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
-        let capacity = data.len();
+        let capacity = segment_data.len();
 
-        Self { buf, capacity }
+        let params_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("line parameters"),
+            contents: params_data,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let params_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("line parameters"),
+            layout: params_bg_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: params_buf.as_entire_binding(),
+            }],
+        });
+
+        Self {
+            segment_buf,
+            capacity,
+            params_buf,
+            params_bind_group,
+        }
     }
 
     /// Write instance data to an existing buffer, reallocating if necessary.
-    fn write(&mut self, ctx: &mut RenderContext, data: &[u8]) {
-        if data.len() > self.capacity {
+    fn write(&mut self, ctx: &mut RenderContext, params_data: &[u8], segment_data: &[u8]) {
+        if segment_data.len() > self.capacity {
             // not enough capacity, reallocate
-            *self = Self::write_new(ctx.device, data);
+            use wgpu::util::DeviceExt;
+            self.segment_buf = ctx
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("line segments"),
+                    contents: segment_data,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                });
+            self.capacity = segment_data.len();
         } else {
-            ctx.queue
-                .write_buffer(&self.buf, 0, bytemuck::cast_slice(data));
+            ctx.queue.write_buffer(&self.segment_buf, 0, segment_data);
         }
+
+        ctx.queue.write_buffer(&self.params_buf, 0, params_data);
     }
 }

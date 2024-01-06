@@ -1,8 +1,8 @@
 mod resources;
 use resources::SharedResources;
 
-mod line;
-use line::{LineDrawingMode, LinePipeline};
+pub(crate) mod line;
+use line::{LineDrawingMode, LineParameters, LinePipeline};
 
 mod wireframe;
 use wireframe::WireframePipeline;
@@ -16,7 +16,10 @@ use itertools::Itertools;
 use nalgebra as na;
 use std::collections::HashMap;
 
-use super::render_window::{RenderContext, RenderWindow};
+use crate::{
+    camera::Camera,
+    render_window::{RenderContext, RenderWindow},
+};
 use dexterior as dex;
 
 pub(crate) struct Renderer {
@@ -94,6 +97,7 @@ pub struct Painter<'a, 'ctx: 'a> {
     pub(crate) ctx: &'a mut RenderContext<'ctx>,
     pub(crate) rend: &'a mut Renderer,
     pub(crate) mesh: &'a dex::SimplicialMesh<2>,
+    pub(crate) camera: &'a Camera,
 }
 
 impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
@@ -158,7 +162,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     /// Draw a set of axes around the mesh.
     ///
     /// This is a super rough sketch and will be refined with configuration options later.
-    pub fn axes_2d(&mut self) {
+    pub fn axes_2d(&mut self, line_params: LineParameters) {
         // TODO: parameterize these
         const PADDING: f32 = 0.2;
         const TICK_INTERVAL: f32 = 1.0;
@@ -205,6 +209,8 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
         self.rend.line_pl.draw(
             &self.rend.resources,
             self.ctx,
+            self.camera,
+            line_params,
             LineDrawingMode::List,
             &points,
         );
@@ -214,25 +220,37 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     ///
     /// Every two points in `points` define a distinct segment,
     /// with a gap left between them.
-    pub fn line_list(&mut self, points: &[na::Vector3<f64>]) {
-        self.lines(points, LineDrawingMode::List);
+    #[inline]
+    pub fn line_list(&mut self, params: LineParameters, points: &[na::Vector3<f64>]) {
+        self.lines(params, LineDrawingMode::List, points);
     }
 
     /// Draw a strip of line segments.
     ///
     /// Every point in `points` is connected
     /// to both the next and previous one with a line segments.
-    pub fn line_strip(&mut self, points: &[na::Vector3<f64>]) {
-        self.lines(points, LineDrawingMode::Strip);
+    #[inline]
+    pub fn line_strip(&mut self, params: LineParameters, points: &[na::Vector3<f64>]) {
+        self.lines(params, LineDrawingMode::Strip, points);
     }
 
-    fn lines(&mut self, points: &[na::Vector3<f64>], mode: LineDrawingMode) {
+    fn lines(
+        &mut self,
+        params: LineParameters,
+        mode: LineDrawingMode,
+        points: &[na::Vector3<f64>],
+    ) {
         let points: Vec<[f32; 3]> = points
             .iter()
             .map(|p| [p.x as f32, p.y as f32, p.z as f32])
             .collect();
-        self.rend
-            .line_pl
-            .draw(&self.rend.resources, self.ctx, mode, &points);
+        self.rend.line_pl.draw(
+            &self.rend.resources,
+            self.ctx,
+            self.camera,
+            params,
+            mode,
+            &points,
+        );
     }
 }

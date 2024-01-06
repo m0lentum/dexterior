@@ -93,4 +93,22 @@ impl Camera {
 
         view_proj
     }
+
+    /// Compute the size of a viewport pixel in world space when viewed with this camera.
+    pub(crate) fn pixel_size(&self, viewport_size: (u32, u32)) -> f32 {
+        let (vp_w, vp_h) = viewport_size;
+        match self.projection {
+            Projection::Orthographic(diag) => {
+                let (vp_dim, view_area_dim) = if vp_w >= vp_h {
+                    (vp_w, diag.x)
+                } else {
+                    (vp_h, diag.y)
+                };
+                view_area_dim / vp_dim as f32
+            }
+            Projection::Perspective => {
+                todo!("Perspective projection is not implemented yet")
+            }
+        }
+    }
 }

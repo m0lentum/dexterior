@@ -59,20 +59,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             draw.vertex_colors(&state.p);
             draw.wireframe();
             // just testing
-            draw.line_strip(&[
-                na::Vector3::new(2.5, 0.5, 0.0),
-                na::Vector3::new(3.5, 1.0, 0.0),
-                na::Vector3::new(2.5, 1.0, 0.0),
-                na::Vector3::new(3.5, 1.5, 0.0),
-                na::Vector3::new(3.0, 3.0, 0.0),
-            ]);
-            draw.line_list(&[
-                na::Vector3::new(0.5, 0.5, 0.0),
-                na::Vector3::new(1.5, 1.0, 0.0),
-                na::Vector3::new(0.5, 1.0, 0.0),
-                na::Vector3::new(1.5, 1.5, 0.0),
-            ]);
-            draw.axes_2d();
+            draw.line_strip(
+                dv::LineParameters {
+                    width: dv::LineWidth::ScreenPixels(2.),
+                    ..Default::default()
+                },
+                &[
+                    na::Vector3::new(2.5, 0.5, 0.),
+                    na::Vector3::new(3.5, 1.0, 0.),
+                    na::Vector3::new(2.5, 1.0, 0.),
+                    na::Vector3::new(3.5, 1.5, 0.),
+                    na::Vector3::new(3.0, 3.0, 0.),
+                ],
+            );
+
+            draw.line_list(
+                dv::LineParameters {
+                    width: dv::LineWidth::WorldUnits(0.1),
+                    color: dv::palette::named::DARKTURQUOISE.into(),
+                },
+                &[
+                    na::Vector3::new(0.5, 0.5, 0.),
+                    na::Vector3::new(1.5, 1.0, 0.),
+                    na::Vector3::new(0.5, 1.0, 0.),
+                    na::Vector3::new(1.5, 1.5, 0.),
+                ],
+            );
+            draw.axes_2d(dv::LineParameters {
+                width: dv::LineWidth::ScreenPixels(3.),
+                ..Default::default()
+            });
         },
     });
 

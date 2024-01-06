@@ -9,7 +9,12 @@ pub mod color_map;
 pub use color_map::builtin_color_maps;
 
 pub(crate) mod pipelines;
-pub use pipelines::Painter;
+pub use pipelines::{
+    line::{LineDrawingMode, LineParameters, LineWidth},
+    Painter,
+};
 
 pub mod render_window;
 pub use render_window::{RenderWindow, WindowInitError, WindowParams};
+
+pub use palette;

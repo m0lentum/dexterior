@@ -8,7 +8,7 @@ use winit::{
 
 use nalgebra as na;
 
-use super::pipelines as pl;
+use super::{camera::Camera, pipelines as pl};
 
 /// An error that occurred when creating a [`RenderWindow`].
 #[derive(thiserror::Error, Debug)]
@@ -251,7 +251,7 @@ impl RenderWindow {
         // think about how to abstract this.
         // also it could be fun to allow looking at a 2D mesh with a 3D camera)
         let b = anim.mesh.bounds();
-        let camera = super::camera::Camera::new_2d(
+        let camera = Camera::new_2d(
             na::Vector2::new(b.min.x as f32, b.min.y as f32),
             na::Vector2::new(b.max.x as f32, b.max.y as f32),
             1.0,
@@ -273,6 +273,7 @@ impl RenderWindow {
                         ctx: &mut ctx,
                         rend: &mut renderer,
                         mesh: anim.mesh,
+                        camera: &camera,
                     };
                     (anim.step)(&mut painter);
 
