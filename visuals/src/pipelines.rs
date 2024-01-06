@@ -16,10 +16,7 @@ use itertools::Itertools;
 use nalgebra as na;
 use std::collections::HashMap;
 
-use crate::{
-    camera::Camera,
-    render_window::{RenderContext, RenderWindow},
-};
+use crate::render_window::{RenderContext, RenderWindow};
 use dexterior as dex;
 
 pub(crate) struct Renderer {
@@ -97,7 +94,6 @@ pub struct Painter<'a, 'ctx: 'a> {
     pub(crate) ctx: &'a mut RenderContext<'ctx>,
     pub(crate) rend: &'a mut Renderer,
     pub(crate) mesh: &'a dex::SimplicialMesh<2>,
-    pub(crate) camera: &'a Camera,
 }
 
 impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
@@ -209,7 +205,6 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
         self.rend.line_pl.draw(
             &self.rend.resources,
             self.ctx,
-            self.camera,
             line_params,
             LineDrawingMode::List,
             &points,
@@ -244,13 +239,8 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
             .iter()
             .map(|p| [p.x as f32, p.y as f32, p.z as f32])
             .collect();
-        self.rend.line_pl.draw(
-            &self.rend.resources,
-            self.ctx,
-            self.camera,
-            params,
-            mode,
-            &points,
-        );
+        self.rend
+            .line_pl
+            .draw(&self.rend.resources, self.ctx, params, mode, &points);
     }
 }

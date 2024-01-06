@@ -273,7 +273,6 @@ impl RenderWindow {
                         ctx: &mut ctx,
                         rend: &mut renderer,
                         mesh: anim.mesh,
-                        camera: &camera,
                     };
                     (anim.step)(&mut painter);
 

@@ -52,6 +52,8 @@ struct CameraUniforms {
     view_proj: na::Matrix4<f32>,
     // camera basis vectors used for drawing billboards in the line renderer
     basis: na::Matrix3<f32>,
+    // viewport resolution used for scaling things to pixels
+    resolution: na::Vector2<f32>,
 }
 
 /// Storage buffer for generic vector data and color mapping parameters.
@@ -276,6 +278,7 @@ impl SharedResources {
         let uniforms = CameraUniforms {
             view_proj: camera.view_projection_matrix(ctx.viewport_size),
             basis: camera.pose.isometry.rotation.to_rotation_matrix().into(),
+            resolution: na::Vector2::new(ctx.viewport_size.0 as f32, ctx.viewport_size.1 as f32),
         };
         let mut uniform_bytes = encase::UniformBuffer::new(Vec::new());
         uniform_bytes.write(&uniforms).unwrap();

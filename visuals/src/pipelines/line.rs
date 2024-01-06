@@ -1,7 +1,7 @@
 use nalgebra as na;
 use std::borrow::Cow;
 
-use crate::{camera::Camera, render_window::RenderContext};
+use crate::render_window::RenderContext;
 
 //
 // user-facing parameters
@@ -81,10 +81,21 @@ struct Primitives {
 /// Uniform parameters for the shaders.
 #[derive(Clone, Copy, Debug, encase::ShaderType)]
 struct ParamUniforms {
+    // scaling in screenspace or worldspace
+    // (corresponds to `ScalingMode` below,
+    // but encase doesn't understand enums)
+    placement_mode: u32,
     width: f32,
     // note: this can't be a [f32; 4]
     // because encase will interpret it as a shader-side array
     color: na::Vector4<f32>,
+}
+
+/// Line scaling in screenspace or worldspace
+#[derive(Clone, Copy)]
+enum ScalingMode {
+    WorldSpace = 0,
+    ScreenSpace = 1,
 }
 
 /// A vertex in the instance geometry.
@@ -320,7 +331,6 @@ impl LinePipeline {
         &mut self,
         res: &super::SharedResources,
         ctx: &mut RenderContext,
-        camera: &Camera,
         params: LineParameters,
         mode: LineDrawingMode,
         points: &[[f32; 3]],
@@ -328,9 +338,13 @@ impl LinePipeline {
         // upload line segments and uniforms
 
         let params_unif = ParamUniforms {
+            placement_mode: match params.width {
+                LineWidth::WorldUnits(_) => ScalingMode::WorldSpace as u32,
+                LineWidth::ScreenPixels(_) => ScalingMode::ScreenSpace as u32,
+            },
             width: match params.width {
                 LineWidth::WorldUnits(w) => w,
-                LineWidth::ScreenPixels(p) => p * camera.pixel_size(ctx.viewport_size),
+                LineWidth::ScreenPixels(p) => p,
             },
             color: na::Vector4::new(params.color.red, params.color.green, params.color.blue, 1.0),
         };
