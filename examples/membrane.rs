@@ -62,6 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             draw.line_strip(
                 dv::LineParameters {
                     width: dv::LineWidth::ScreenPixels(2.),
+                    joins: dv::JoinStyle::None,
+                    caps: dv::CapStyle::Arrow.both_ends(),
                     ..Default::default()
                 },
                 &[
@@ -77,6 +79,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 dv::LineParameters {
                     width: dv::LineWidth::WorldUnits(0.1),
                     color: dv::palette::named::DARKTURQUOISE.into(),
+                    joins: dv::JoinStyle::None,
+                    caps: dv::CapsStyle {
+                        start: dv::CapStyle::Arrow,
+                        end: dv::CapStyle::Circle,
+                    },
                 },
                 &[
                     na::Vector3::new(0.5, 0.5, 0.),

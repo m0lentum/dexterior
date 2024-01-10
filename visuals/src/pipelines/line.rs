@@ -16,6 +16,14 @@ pub struct LineParameters {
     /// Color of the line in linear sRGB space.
     /// Default: `palette::named::BLACK.into()`.
     pub color: palette::LinSrgb,
+    /// The style of joins between line segments in a line strip.
+    /// Does nothing when drawing a line list.
+    /// Default: `JoinStyle::Circle`.
+    pub joins: JoinStyle,
+    /// The style of caps at the ends of a line strip
+    /// or at the ends of every segment in a line list.
+    /// Default: `CapsStyle::both(CapStyle::Circle)`.
+    pub caps: CapsStyle,
 }
 
 impl Default for LineParameters {
@@ -23,6 +31,8 @@ impl Default for LineParameters {
         Self {
             width: LineWidth::ScreenPixels(1.0),
             color: palette::named::BLACK.into(),
+            joins: JoinStyle::Circle,
+            caps: CapsStyle::both(CapStyle::Circle),
         }
     }
 }
@@ -36,8 +46,64 @@ pub enum LineWidth {
     WorldUnits(f32),
 }
 
-/// How to interpret point data given to the line renderer.
+/// The shape to draw at the connection points between line segments in a line strip.
+/// Currently only circle joins or none at all are supported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinStyle {
+    /// Draw a circle between each line segment.
+    Circle,
+    /// Don't draw any joins.
+    ///
+    /// This generally looks ugly, but can be useful as an optimization
+    /// if the lines you draw are thin enough not to see joins at all.
+    None,
+}
+
+/// Styles for the start and end of a line segment or strip.
 #[derive(Clone, Copy, Debug)]
+pub struct CapsStyle {
+    pub start: CapStyle,
+    pub end: CapStyle,
+}
+
+impl CapsStyle {
+    /// Create a cap style with the same shape at both ends.
+    pub fn both(style: CapStyle) -> Self {
+        Self {
+            start: style,
+            end: style,
+        }
+    }
+}
+
+/// The shape to draw at the start or end of a line segment or strip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapStyle {
+    Circle,
+    Arrow,
+    None,
+}
+
+impl CapStyle {
+    /// Set this cap style at both ends of the line.
+    #[inline]
+    pub fn both_ends(self) -> CapsStyle {
+        CapsStyle::both(self)
+    }
+
+    /// Select the primitive corresponding to this cap style from the collection of primitives.
+    #[inline]
+    fn pick_primitive(self, prims: &Primitives) -> Option<&InstanceGeometry> {
+        match self {
+            CapStyle::Circle => Some(&prims.circle_join),
+            CapStyle::Arrow => Some(&prims.arrow_cap),
+            CapStyle::None => None,
+        }
+    }
+}
+
+/// How to interpret point data given to the line renderer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineDrawingMode {
     /// Every two points are a separate line segment with a gap between them.
     List,
@@ -54,10 +120,8 @@ pub enum LineDrawingMode {
 /// Based on [this blog post by Rye Terrell].
 /// (https://wwwtyro.net/2019/11/18/instanced-lines.html)
 pub(crate) struct LinePipeline {
-    // pipelines for different instance step modes
-    list_pipeline: wgpu::RenderPipeline,
-    strip_pipeline: wgpu::RenderPipeline,
-    point_pipeline: wgpu::RenderPipeline,
+    // pipelines for different instance step modes and shaders
+    pipelines: Pipelines,
     // geometry for segments and joins
     primitives: Primitives,
     // list of instance buffers and uniform bind groups,
@@ -71,11 +135,25 @@ pub(crate) struct LinePipeline {
     next_draw_index: usize,
 }
 
+/// A collection of all the pipelines with different step modes and shaders.
+struct Pipelines {
+    // line segments, list and strip
+    seg_list: wgpu::RenderPipeline,
+    seg_strip: wgpu::RenderPipeline,
+    // unoriented joins
+    point: wgpu::RenderPipeline,
+    // caps
+    cap_end_list: wgpu::RenderPipeline,
+    cap_end_strip: wgpu::RenderPipeline,
+    cap_start: wgpu::RenderPipeline,
+}
+
 /// A collection of all instance primitives we need
 /// for line segments, caps, and joins.
 struct Primitives {
     segment: InstanceGeometry,
     circle_join: InstanceGeometry,
+    arrow_cap: InstanceGeometry,
 }
 
 /// Uniform parameters for the shaders.
@@ -84,7 +162,7 @@ struct ParamUniforms {
     // scaling in screenspace or worldspace
     // (corresponds to `ScalingMode` below,
     // but encase doesn't understand enums)
-    placement_mode: u32,
+    scaling_mode: u32,
     width: f32,
     // note: this can't be a [f32; 4]
     // because encase will interpret it as a shader-side array
@@ -113,13 +191,20 @@ impl LinePipeline {
                     "../shaders/line_segment.wgsl"
                 ))),
             });
-
         let circle_join_shader = window
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label,
                 source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
                     "../shaders/line_join_unoriented.wgsl"
+                ))),
+            });
+        let cap_shader = window
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label,
+                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+                    "../shaders/line_cap_oriented.wgsl"
                 ))),
             });
 
@@ -157,24 +242,39 @@ impl LinePipeline {
         /// Different rates of stepping through the instance buffer and different shaders
         /// are needed for different parts of drawing the lines.
         /// A line list needs to step twice more per instance
-        /// than a line strip, and circle joins just need an endpoint per instance.
+        /// than a line strip, circle joins just need an endpoint per instance,
+        /// and caps need to reverse the order of points to draw at the start of a line.
         enum InstanceStepMode {
             LineList,
             LineStrip,
-            Points,
+            PointJoins,
+            CapsEndList,
+            // different strides needed for end caps depending on mode
+            // because the correct positioning for a cap at the end of a strip
+            // can't be reached with an even stride if there's an odd number of points
+            CapsEndStrip,
+            CapsStart,
         }
 
         let pipeline = |mode: InstanceStepMode| {
             use InstanceStepMode::*;
+            let label = Some(match mode {
+                LineList => "line list",
+                LineStrip => "line strip",
+                PointJoins => "point joins",
+                CapsEndList => "end caps (list)",
+                CapsEndStrip => "end caps (strip)",
+                CapsStart => "start caps",
+            });
             let array_stride = match mode {
                 // two points per step for line lists
-                LineList => 2 * 3 * 4,
+                LineList | CapsEndList | CapsStart => 2 * 3 * 4,
                 // just one point for the rest,
                 // since strips treat each point as both a start and an end
-                LineStrip | Points => 3 * 4,
+                LineStrip | PointJoins | CapsEndStrip => 3 * 4,
             };
             let attributes = match mode {
-                LineList | LineStrip => [
+                LineList | LineStrip | CapsEndList | CapsEndStrip => [
                     wgpu::VertexAttribute {
                         format: wgpu::VertexFormat::Float32x3,
                         offset: 0,
@@ -187,7 +287,21 @@ impl LinePipeline {
                     },
                 ]
                 .as_slice(),
-                Points => [wgpu::VertexAttribute {
+                CapsStart => [
+                    // start and end points swapped for drawing start caps
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x3,
+                        offset: 3 * 4,
+                        shader_location: 1,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x3,
+                        offset: 0,
+                        shader_location: 2,
+                    },
+                ]
+                .as_slice(),
+                PointJoins => [wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x3,
                     offset: 0,
                     shader_location: 1,
@@ -196,7 +310,8 @@ impl LinePipeline {
             };
             let module = match mode {
                 LineList | LineStrip => &segment_shader,
-                Points => &circle_join_shader,
+                PointJoins => &circle_join_shader,
+                CapsEndList | CapsEndStrip | CapsStart => &cap_shader,
             };
 
             window
@@ -248,9 +363,14 @@ impl LinePipeline {
         };
 
         Self {
-            list_pipeline: pipeline(InstanceStepMode::LineList),
-            strip_pipeline: pipeline(InstanceStepMode::LineStrip),
-            point_pipeline: pipeline(InstanceStepMode::Points),
+            pipelines: Pipelines {
+                seg_list: pipeline(InstanceStepMode::LineList),
+                seg_strip: pipeline(InstanceStepMode::LineStrip),
+                point: pipeline(InstanceStepMode::PointJoins),
+                cap_end_list: pipeline(InstanceStepMode::CapsEndList),
+                cap_end_strip: pipeline(InstanceStepMode::CapsEndStrip),
+                cap_start: pipeline(InstanceStepMode::CapsStart),
+            },
             primitives: Self::generate_instance_geometry(&window.device),
             instance_bufs: Vec::new(),
             params_bind_group_layout,
@@ -270,9 +390,8 @@ impl LinePipeline {
             &[0, 1, 2, 0, 2, 3],
         );
 
-        // TODO: the resolution of the circle should vary
-        // depending on line thickness.
-        // how should we do that?
+        // circle
+
         let circle_vert_count = 16;
         let angle_increment = std::f32::consts::TAU / circle_vert_count as f32;
         let circle_verts: Vec<Vertex> = (0..circle_vert_count)
@@ -287,9 +406,19 @@ impl LinePipeline {
         let circle_join =
             InstanceGeometry::upload(device, "circle join", &circle_verts, &circle_indices);
 
+        // arrow
+
+        let arrow_cap = InstanceGeometry::upload(
+            device,
+            "arrow cap",
+            &[[0., 0.], [-4., 2.], [-4., -2.], [-3., 0.]],
+            &[0, 1, 3, 0, 3, 2],
+        );
+
         Primitives {
             segment,
             circle_join,
+            arrow_cap,
         }
     }
 
@@ -338,7 +467,7 @@ impl LinePipeline {
         // upload line segments and uniforms
 
         let params_unif = ParamUniforms {
-            placement_mode: match params.width {
+            scaling_mode: match params.width {
                 LineWidth::WorldUnits(_) => ScalingMode::WorldSpace as u32,
                 LineWidth::ScreenPixels(_) => ScalingMode::ScreenSpace as u32,
             },
@@ -360,44 +489,102 @@ impl LinePipeline {
 
         // draw segments
 
+        let point_count = points.len() as u32;
         let segment_count = match mode {
-            LineDrawingMode::List => points.len() / 2,
-            LineDrawingMode::Strip => points.len() - 1,
+            LineDrawingMode::List => point_count / 2,
+            LineDrawingMode::Strip => point_count - 1,
         };
 
         pass.set_pipeline(match mode {
-            LineDrawingMode::List => &self.list_pipeline,
-            LineDrawingMode::Strip => &self.strip_pipeline,
+            LineDrawingMode::List => &self.pipelines.seg_list,
+            LineDrawingMode::Strip => &self.pipelines.seg_strip,
         });
-        pass.set_vertex_buffer(0, self.primitives.segment.vertex_buf.slice(..));
-        pass.set_index_buffer(
-            self.primitives.segment.index_buf.slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
+        let idx_range = self.primitives.segment.bind(&mut pass);
         pass.set_vertex_buffer(1, instance.segment_buf.slice(..));
 
-        pass.draw_indexed(
-            0..self.primitives.segment.index_count,
-            0,
-            0..segment_count as _,
-        );
+        pass.draw_indexed(idx_range, 0, 0..segment_count);
 
-        // draw circle joins and caps
-        // TODO: allow other types of cap (joins are probably fine to be always circles)
+        // draw joins and caps
 
-        let point_count = points.len();
+        // there's some repetition here between the two modes,
+        // but it's easier to copy-paste than wrangle all the logic
+        // for exactly where to draw circle joins etc.
+        match mode {
+            LineDrawingMode::Strip => {
+                // joins and possibly circle caps for strips
 
-        pass.set_pipeline(&self.point_pipeline);
-        pass.set_vertex_buffer(0, self.primitives.circle_join.vertex_buf.slice(..));
-        pass.set_index_buffer(
-            self.primitives.circle_join.index_buf.slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
-        pass.draw_indexed(
-            0..self.primitives.circle_join.index_count,
-            0,
-            0..point_count as _,
-        );
+                match params.joins {
+                    JoinStyle::Circle => {
+                        pass.set_pipeline(&self.pipelines.point);
+                        let idx_range = self.primitives.circle_join.bind(&mut pass);
+
+                        // if caps are also circles, draw them at the same time
+                        let start = if let CapStyle::Circle = params.caps.start {
+                            0
+                        } else {
+                            1
+                        };
+                        let end = if let CapStyle::Circle = params.caps.end {
+                            point_count
+                        } else {
+                            point_count - 1
+                        };
+                        pass.draw_indexed(idx_range, 0, start..end as _);
+                    }
+                    JoinStyle::None => {
+                        // no joins, but still draw caps the same way
+                        if params.caps.start == CapStyle::Circle
+                            || params.caps.end == CapStyle::Circle
+                        {
+                            pass.set_pipeline(&self.pipelines.point);
+                            let idx_range = self.primitives.circle_join.bind(&mut pass);
+
+                            if params.caps.start == CapStyle::Circle {
+                                pass.draw_indexed(idx_range.clone(), 0, 0..1);
+                            }
+                            if params.caps.end == CapStyle::Circle {
+                                pass.draw_indexed(idx_range, 0, point_count - 1..point_count)
+                            }
+                        }
+                    }
+                }
+
+                // non-circle caps for strips
+
+                if let Some(prim) = params.caps.start.pick_primitive(&self.primitives) {
+                    pass.set_pipeline(&self.pipelines.cap_start);
+                    let idx_range = prim.bind(&mut pass);
+                    pass.draw_indexed(idx_range, 0, 0..1);
+                }
+                if let Some(prim) = params.caps.end.pick_primitive(&self.primitives) {
+                    pass.set_pipeline(&self.pipelines.cap_end_strip);
+                    let idx_range = prim.bind(&mut pass);
+                    pass.draw_indexed(idx_range, 0, segment_count - 1..segment_count);
+                }
+            }
+            LineDrawingMode::List => {
+                // caps for lists (lists don't have joins)
+
+                if params.caps.start == CapStyle::Circle && params.caps.end == CapStyle::Circle {
+                    // special case when caps are all circles,
+                    // draw the same way as joins on line strips
+                    pass.set_pipeline(&self.pipelines.point);
+                    let idx_range = self.primitives.circle_join.bind(&mut pass);
+                    pass.draw_indexed(idx_range, 0, 0..point_count);
+                } else {
+                    if let Some(prim) = params.caps.start.pick_primitive(&self.primitives) {
+                        pass.set_pipeline(&self.pipelines.cap_start);
+                        let idx_range = prim.bind(&mut pass);
+                        pass.draw_indexed(idx_range, 0, 0..segment_count);
+                    }
+                    if let Some(prim) = params.caps.end.pick_primitive(&self.primitives) {
+                        pass.set_pipeline(&self.pipelines.cap_end_list);
+                        let idx_range = prim.bind(&mut pass);
+                        pass.draw_indexed(idx_range, 0, 0..segment_count);
+                    }
+                }
+            }
+        }
 
         self.next_draw_index += 1;
     }
@@ -434,6 +621,14 @@ impl InstanceGeometry {
             index_buf,
             index_count: indices.len() as u32,
         }
+    }
+
+    /// Bind this instance's geometry to vertex buffer 0.
+    /// Returns the index range to draw with for extra convenience.
+    fn bind<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) -> std::ops::Range<u32> {
+        pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+        pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
+        0..self.index_count
     }
 }
 

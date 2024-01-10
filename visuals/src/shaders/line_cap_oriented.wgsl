@@ -23,7 +23,7 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(
-    // position of the individual vertex in the line segment instance
+    // position of the individual vertex in the cap geometry
     @location(0) pos_local: vec2<f32>,
     // start and end points of the segment from the instance buffer
     @location(1) start_point: vec3<f32>,
@@ -34,20 +34,20 @@ fn vs_main(
     switch params.scaling_mode {
 	// world space scaling
 	case 0u: {
-	    let x_basis = end_point - start_point;
+	    // unlike line_segment.wgsl, both basis vectors normalized because caps don't stretch
+	    let x_basis = normalize(end_point - start_point);
 	    // Y basis vector points in a direction orthogonal
 	    // to both the camera direction and the X basis vector in 3D space
-	    let y_basis = params.width * normalize(cross(camera.basis[2], x_basis));
+	    let y_basis = normalize(cross(camera.basis[2], x_basis));
 	    let basis_mat = mat2x3<f32>(x_basis, y_basis);
-	    let pos_world = start_point + basis_mat * pos_local;
+	    let pos_world = end_point + params.width * basis_mat * pos_local;
 	    out.clip_position = camera.view_proj * vec4<f32>(pos_world, 1.0);
 	}
 	// screen space scaling
 	case 1u: {
 	    // convert start and end points to screen space
-	    // (we only care about scaling here
-	    // so no need to add the offset from the bottom left
-	    // to get the correct pixel position)
+	    // (a lot of this is copy-pasted from line_segment.wgsl.
+	    // maybe consider using naga_oil to make some of it modular)
 
 	    let start_clip = (camera.view_proj * vec4<f32>(start_point, 1.));
 	    let end_clip = (camera.view_proj * vec4<f32>(end_point, 1.));
@@ -59,10 +59,10 @@ fn vs_main(
 
 	    // compute vertex position in screen space
 
-	    let x_basis = end_screen - start_screen;
-	    let y_basis = vec4<f32>(params.width * normalize(vec2<f32>(-x_basis.y, x_basis.x)), 0., 0.);
+	    let x_basis = normalize(end_screen - start_screen);
+	    let y_basis = vec4<f32>(normalize(vec2<f32>(-x_basis.y, x_basis.x)), 0., 0.);
 	    let basis_mat = mat2x4(x_basis, y_basis);
-	    let pos_screen = start_screen + basis_mat * pos_local;
+	    let pos_screen = end_screen + params.width * basis_mat * pos_local;
 
 	    // convert back to clip space
 
