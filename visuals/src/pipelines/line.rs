@@ -46,6 +46,17 @@ pub enum LineWidth {
     WorldUnits(f32),
 }
 
+impl std::ops::Mul<f32> for LineWidth {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        match self {
+            Self::ScreenPixels(p) => Self::ScreenPixels(rhs * p),
+            Self::WorldUnits(u) => Self::WorldUnits(rhs * u),
+        }
+    }
+}
+
 /// The shape to draw at the connection points between line segments in a line strip.
 /// Currently only circle joins or none at all are supported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

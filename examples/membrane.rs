@@ -92,8 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     na::Vector3::new(1.5, 1.5, 0.),
                 ],
             );
-            draw.axes_2d(dv::LineParameters {
-                width: dv::LineWidth::ScreenPixels(3.),
+            draw.axes_2d(dv::AxesParameters {
                 ..Default::default()
             });
         },

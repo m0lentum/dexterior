@@ -4,6 +4,9 @@ use resources::SharedResources;
 pub(crate) mod line;
 use line::{LineDrawingMode, LineParameters, LinePipeline};
 
+pub(crate) mod axes;
+use axes::AxesParameters;
+
 mod wireframe;
 use wireframe::WireframePipeline;
 
@@ -156,59 +159,8 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     }
 
     /// Draw a set of axes around the mesh.
-    ///
-    /// This is a super rough sketch and will be refined with configuration options later.
-    pub fn axes_2d(&mut self, line_params: LineParameters) {
-        // TODO: parameterize these
-        const PADDING: f32 = 0.2;
-        const TICK_INTERVAL: f32 = 1.0;
-        const TICK_LENGTH: f32 = 0.05;
-
-        // generate main axis lines
-        let bounds = self.mesh.bounds();
-        let origin = [
-            bounds.min.x as f32 - PADDING,
-            bounds.min.y as f32 - PADDING,
-            0.0,
-        ];
-        let x_max = [bounds.max.x as f32 + PADDING, origin[1], 0.0];
-        let y_max = [origin[0], bounds.max.y as f32 + PADDING, 0.0];
-
-        let mut points = vec![origin, x_max, origin, y_max];
-
-        // generate tick lines at regular intervals
-
-        // this should generalize to 3D fairly easily, I hope
-        for axis_idx in 0..2 {
-            let cross_axis_idx = (axis_idx + 1) % 2;
-
-            // start at the first multiple of TICK_INTERVAL in global space,
-            // not on the axis line (which can be anywhere)
-            let initial_tick =
-                origin[axis_idx] + TICK_INTERVAL - origin[axis_idx].rem_euclid(TICK_INTERVAL);
-            let bound_size = bounds.max[axis_idx] as f32 - initial_tick;
-            let tick_count = (bound_size / TICK_INTERVAL) as usize;
-
-            for tick_idx in 0..=tick_count {
-                let mut tick_points = [[0., 0., 0.], [0., 0., 0.]];
-
-                let tick_coord = initial_tick + tick_idx as f32 * TICK_INTERVAL;
-
-                tick_points[0][axis_idx] = tick_coord;
-                tick_points[0][cross_axis_idx] = origin[cross_axis_idx] + TICK_LENGTH / 2.;
-                tick_points[1][axis_idx] = tick_coord;
-                tick_points[1][cross_axis_idx] = origin[cross_axis_idx] - TICK_LENGTH / 2.;
-                points.extend_from_slice(&tick_points);
-            }
-        }
-
-        self.rend.line_pl.draw(
-            &self.rend.resources,
-            self.ctx,
-            line_params,
-            LineDrawingMode::List,
-            &points,
-        );
+    pub fn axes_2d(&mut self, params: AxesParameters) {
+        axes::axes_2d(self, params);
     }
 
     /// Draw a list of line segments.

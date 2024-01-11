@@ -10,6 +10,7 @@ pub use color_map::builtin_color_maps;
 
 pub(crate) mod pipelines;
 pub use pipelines::{
+    axes::AxesParameters,
     line::{CapStyle, CapsStyle, JoinStyle, LineDrawingMode, LineParameters, LineWidth},
     Painter,
 };
