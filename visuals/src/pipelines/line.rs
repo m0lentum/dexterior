@@ -156,6 +156,52 @@ struct Primitives {
     arrow_cap: InstanceGeometry,
 }
 
+impl Primitives {
+    /// Generate vertex and index buffers for line segments, joins and caps.
+    fn generate_instance_geometry(device: &wgpu::Device) -> Self {
+        // a line segment is just a rectangle
+        // with coordinates chosen so that it's easy to transform
+        // using the difference between two points and a thickness value
+        let segment = InstanceGeometry::upload(
+            device,
+            "line segment",
+            &[[0., 0.5], [0., -0.5], [1., -0.5], [1., 0.5]],
+            &[0, 1, 2, 0, 2, 3],
+        );
+
+        // circle
+
+        let circle_vert_count = 16;
+        let angle_increment = std::f32::consts::TAU / circle_vert_count as f32;
+        let circle_verts: Vec<Vertex> = (0..circle_vert_count)
+            .map(|i| {
+                let angle = i as f32 * angle_increment;
+                [0.5 * f32::cos(angle), 0.5 * f32::sin(angle)]
+            })
+            .collect();
+        let circle_indices: Vec<u16> = (1..circle_vert_count - 1)
+            .flat_map(|i| [0, i, i + 1])
+            .collect();
+        let circle_join =
+            InstanceGeometry::upload(device, "circle join", &circle_verts, &circle_indices);
+
+        // arrow
+
+        let arrow_cap = InstanceGeometry::upload(
+            device,
+            "arrow cap",
+            &[[1., 0.], [-3., 2.], [-3., -2.], [-2., 0.]],
+            &[0, 1, 3, 0, 3, 2],
+        );
+
+        Self {
+            segment,
+            circle_join,
+            arrow_cap,
+        }
+    }
+}
+
 /// Uniform parameters for the shaders.
 #[derive(Clone, Copy, Debug, encase::ShaderType)]
 struct ParamUniforms {
@@ -371,54 +417,10 @@ impl LinePipeline {
                 cap_end_strip: pipeline(InstanceStepMode::CapsEndStrip),
                 cap_start: pipeline(InstanceStepMode::CapsStart),
             },
-            primitives: Self::generate_instance_geometry(&window.device),
+            primitives: Primitives::generate_instance_geometry(&window.device),
             instance_bufs: Vec::new(),
             params_bind_group_layout,
             next_draw_index: 0,
-        }
-    }
-
-    /// Generate vertex and index buffers for line segments, joins and caps.
-    fn generate_instance_geometry(device: &wgpu::Device) -> Primitives {
-        // a line segment is just a rectangle
-        // with coordinates chosen so that it's easy to transform
-        // using the difference between two points and a thickness value
-        let segment = InstanceGeometry::upload(
-            device,
-            "line segment",
-            &[[0., 0.5], [0., -0.5], [1., -0.5], [1., 0.5]],
-            &[0, 1, 2, 0, 2, 3],
-        );
-
-        // circle
-
-        let circle_vert_count = 16;
-        let angle_increment = std::f32::consts::TAU / circle_vert_count as f32;
-        let circle_verts: Vec<Vertex> = (0..circle_vert_count)
-            .map(|i| {
-                let angle = i as f32 * angle_increment;
-                [0.5 * f32::cos(angle), 0.5 * f32::sin(angle)]
-            })
-            .collect();
-        let circle_indices: Vec<u16> = (1..circle_vert_count - 1)
-            .flat_map(|i| [0, i, i + 1])
-            .collect();
-        let circle_join =
-            InstanceGeometry::upload(device, "circle join", &circle_verts, &circle_indices);
-
-        // arrow
-
-        let arrow_cap = InstanceGeometry::upload(
-            device,
-            "arrow cap",
-            &[[0., 0.], [-4., 2.], [-4., -2.], [-3., 0.]],
-            &[0, 1, 3, 0, 3, 2],
-        );
-
-        Primitives {
-            segment,
-            circle_join,
-            arrow_cap,
         }
     }
 
@@ -549,17 +551,19 @@ impl LinePipeline {
                     }
                 }
 
-                // non-circle caps for strips
+                // non-circle caps for strips (circle caps were drawn with joins as a special case)
 
-                if let Some(prim) = params.caps.start.pick_primitive(&self.primitives) {
-                    pass.set_pipeline(&self.pipelines.cap_start);
-                    let idx_range = prim.bind(&mut pass);
-                    pass.draw_indexed(idx_range, 0, 0..1);
-                }
-                if let Some(prim) = params.caps.end.pick_primitive(&self.primitives) {
-                    pass.set_pipeline(&self.pipelines.cap_end_strip);
-                    let idx_range = prim.bind(&mut pass);
-                    pass.draw_indexed(idx_range, 0, segment_count - 1..segment_count);
+                if params.caps.start != CapStyle::Circle || params.caps.end != CapStyle::Circle {
+                    if let Some(prim) = params.caps.start.pick_primitive(&self.primitives) {
+                        pass.set_pipeline(&self.pipelines.cap_start);
+                        let idx_range = prim.bind(&mut pass);
+                        pass.draw_indexed(idx_range, 0, 0..1);
+                    }
+                    if let Some(prim) = params.caps.end.pick_primitive(&self.primitives) {
+                        pass.set_pipeline(&self.pipelines.cap_end_strip);
+                        let idx_range = prim.bind(&mut pass);
+                        pass.draw_indexed(idx_range, 0, segment_count - 1..segment_count);
+                    }
                 }
             }
             LineDrawingMode::List => {
