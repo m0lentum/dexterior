@@ -33,6 +33,7 @@ pub fn build_mesh<const MESH_DIM: usize>(
     // with volume 1
     simplices[0].indices = (0..vertices.len()).collect();
     simplices[0].circumcenters = vertices.clone();
+    simplices[0].barycenters = vertices.clone();
     simplices[0].volumes.resize(vertices.len(), 1.0);
 
     //
@@ -75,9 +76,7 @@ pub fn build_mesh<const MESH_DIM: usize>(
             break;
         };
 
-        // buffer to hold the simplex currently being processed.
-        // we don't push directly into lower_simplices.indices
-        // in order to check if a simplex already exists
+        // buffer to hold the simplex currently being processed
         let mut curr_simplex: Vec<usize> = Vec::with_capacity(lower_simplices.simplex_size);
         // buffers to collect the vertex indices, orientations,
         // and corresponding upper-level simplices of boundary simplices
@@ -299,6 +298,29 @@ pub fn build_mesh<const MESH_DIM: usize>(
 
     for (simplices, circumcenters) in izip!(&mut simplices[1..], circumcenters) {
         simplices.circumcenters = Rc::from(circumcenters);
+    }
+
+    //
+    // compute barycenters
+    //
+
+    // note: barycenters aren't actually used in DEC,
+    // but they're frequently useful in visualization
+    // (interpolating vector-valued cochains at barycenters is nice)
+    // so it makes sense to cache them here
+    for simplices in &mut simplices[1..] {
+        let barycenters: Vec<na::SVector<f64, MESH_DIM>> = simplices
+            .indices
+            .chunks_exact(simplices.simplex_size)
+            // barycenter is the average of all the vertices
+            .map(|indices| {
+                indices
+                    .iter()
+                    .fold(na::SVector::zeros(), |acc, i| acc + vertices[*i])
+                    / simplices.simplex_size as f64
+            })
+            .collect();
+        simplices.barycenters = Rc::from(barycenters);
     }
 
     //
@@ -779,7 +801,7 @@ mod tests {
         let centers = &mesh.simplices[1].circumcenters;
         assert_eq!(expected_1_centers.len(), centers.len());
 
-        for expected in expected_1_centers {
+        for expected in expected_1_centers.iter() {
             let found = centers
                 .iter()
                 .any(|actual| (expected - actual).magnitude_squared() <= f64::EPSILON);
@@ -810,6 +832,37 @@ mod tests {
                 "Expected 2-circumcenter {expected} not found in set {centers:?}"
             )
         }
+
+        // barycenters
+
+        // up to dimension 1, barycenter and circumcenter are the same
+        let expected_1_barys = expected_1_centers;
+        for expected in expected_1_barys {
+            let barys = &mesh.simplices[1].barycenters;
+            let found = barys
+                .iter()
+                .any(|actual| (expected - actual).magnitude_squared() <= f64::EPSILON);
+            assert!(
+                found,
+                "Expected 1-barycenter {expected} not found in set {barys:?}"
+            )
+        }
+
+        #[rustfmt::skip]
+        let expected_2_barys: Vec<Vec2> = [
+            (-0.5, 1. / 3.), (0., 2. / 3.), (0.5, 1. / 3.),
+            (-0.5, -1. / 3.), (0., -2. / 3.), (0.5, -1. / 3.),
+        ]
+        .into_iter()
+        .map(|(x, y)| Vec2::new(x, y))
+        .collect();
+
+        let actual_2_barys = &*mesh.simplices[2].barycenters;
+        assert_eq!(
+            expected_2_barys.as_slice(),
+            actual_2_barys,
+            "2-barycenters didn't match",
+        );
 
         // dual volumes
 
@@ -1006,7 +1059,7 @@ mod tests {
         let centers = &mesh.simplices[1].circumcenters;
         assert_eq!(expected_1_centers.len(), centers.len());
 
-        for expected in expected_1_centers {
+        for expected in expected_1_centers.iter() {
             let found = centers
                 .iter()
                 .any(|actual| (expected - actual).magnitude_squared() <= f64::EPSILON);
@@ -1063,6 +1116,54 @@ mod tests {
                 "Expected 3-circumcenter {expected} not found in set {centers:?}"
             )
         }
+
+        // barycenters
+
+        let expected_1_barys = expected_1_centers;
+        for expected in expected_1_barys {
+            let barys = &mesh.simplices[1].barycenters;
+            let found = barys
+                .iter()
+                .any(|actual| (expected - actual).magnitude_squared() <= f64::EPSILON);
+            assert!(
+                found,
+                "Expected 1-barycenter {expected} not found in set {barys:?}"
+            )
+        }
+
+        #[rustfmt::skip]
+        let expected_2_barys: Vec<Vec3> = [
+            (0., 1./3., 0.),
+            (-1./6., 1./3., -1./3.), (-1./6., 1./3., 1./3.),
+            (1./6., 1./3., -1./3.), (1./6., 1./3., 1./3.),
+            (0., -1./3., 0.), (0., 0., -1./3.), (0., 0., 1./3.),
+            (-1./6., -1./3., -1./3.), (-1./6., -1./3., 1./3.),
+            (1./6., -1./3., -1./3.), (1./6., -1./3., 1./3.),
+        ]
+        .into_iter()
+        .map(|(x, y, z)| Vec3::new(x, y, z))
+        .collect();
+
+        let actual_2_barys = &*mesh.simplices[2].barycenters;
+        assert_eq!(
+            &expected_2_barys, actual_2_barys,
+            "2-barycenters didn't match"
+        );
+
+        #[rustfmt::skip]
+        let expected_3_barys: Vec<Vec3> = [
+            (0., 0.25, -0.25), (0., 0.25, 0.25),
+            (0., -0.25, -0.25), (0., -0.25, 0.25),
+        ]
+        .into_iter()
+        .map(|(x, y, z)| Vec3::new(x, y, z))
+        .collect();
+
+        let actual_3_barys = &*mesh.simplices[3].barycenters;
+        assert_eq!(
+            &expected_3_barys, actual_3_barys,
+            "3-barycenters didn't match"
+        );
 
         // dual volumes
 

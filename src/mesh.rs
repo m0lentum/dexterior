@@ -58,9 +58,10 @@ pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     coboundary_map: nas::CsrMatrix<i8>,
     /// simplices on the boundary of the mesh.
     mesh_boundary: fb::FixedBitSet,
-    /// circumcenters Rc'd so that 0-simplices
+    /// circumcenters and barycenters Rc'd so that 0-simplices
     /// can have the mesh vertices here without duplicating data
     circumcenters: Rc<[na::SVector<f64, MESH_DIM>]>,
+    barycenters: Rc<[na::SVector<f64, MESH_DIM>]>,
     /// unsigned volumes of the primal simplices
     volumes: Vec<f64>,
     /// unsigned volumes of the corresponding dual simplices
@@ -78,6 +79,7 @@ impl<const DIM: usize> Default for SimplexCollection<DIM> {
             coboundary_map: nas::CsrMatrix::zeros(0, 0),
             mesh_boundary: fb::FixedBitSet::default(),
             circumcenters: Rc::from([]),
+            barycenters: Rc::from([]),
             volumes: Vec::new(),
             dual_volumes: Vec::new(),
         }
