@@ -600,6 +600,55 @@ pub fn build_mesh<const MESH_DIM: usize>(
     }
 }
 
+pub fn compute_barycentric_differentials<const DIM: usize, const MESH_DIM: usize>(
+    mesh: &SimplicialMesh<MESH_DIM>,
+) -> Vec<na::SVector<f64, MESH_DIM>> {
+    let mut bary_grads = Vec::new();
+    let simplices = &mesh.simplices[DIM];
+
+    for indices in simplices.indices.chunks_exact(simplices.simplex_size) {
+        // the barycentric differentials are the pseudoinverse
+        // of a matrix whose columns are the differences
+        // between simplex vertices 1..k and vertex 0.
+        // see the PyDEC paper section 9.1 for details
+        //
+        // (note: this could be a statically allocated matrix
+        // thanks to MESH_DIM and DIM both being generics,
+        // but there's some funky trait bounds on nalgebra's pseudoinverse function
+        // that I couldn't figure out)
+        let mut basis_mat = na::DMatrix::zeros(MESH_DIM, DIM);
+
+        for (col_idx, &vert_idx) in indices.iter().skip(1).enumerate() {
+            let edge = mesh.vertices[vert_idx] - mesh.vertices[indices[0]];
+            basis_mat.set_column(col_idx, &edge);
+        }
+
+        // this matrix contains the differentials 1..p as its columns.
+        // the 0th one is then obtained from the fact
+        // that these must all sum to the zero vector
+        let differentials = basis_mat
+            .pseudo_inverse(f64::EPSILON)
+            .expect(
+                "Failed to compute barycentric differentials.
+                There's probably a degenerate simplex in the mesh",
+            )
+            .transpose();
+
+        let diff_0 = differentials
+            .column_iter()
+            .fold(na::SVector::zeros(), |acc, x| {
+                acc - na::SVector::from_column_slice(x.as_slice())
+            });
+
+        bary_grads.push(diff_0);
+        for diff in differentials.column_iter() {
+            bary_grads.push(na::SVector::from_column_slice(diff.as_slice()))
+        }
+    }
+
+    bary_grads
+}
+
 //
 // tests
 //
@@ -1326,5 +1375,43 @@ mod tests {
             all_approx_eq,
             "expected dual 0-volumes {expected_0_dual_vols:?}, got {actual_0_dual_vols:?}"
         );
+    }
+
+    /// Barycentric differentials are correctly orthogonal to faces of simplices.
+    #[test]
+    fn bary_differential_directions() {
+        let mesh = tiny_mesh_3d();
+
+        // I'm not sure if there's a specific direction 1-simplex differentials should point
+        // since they don't have an opposite face with a defined normal
+        // like higher-dimensional ones do.
+        // 2- and higher-dimensional simplices should have differentials
+        // that are orthogonal to the opposite face.
+
+        for (indices, diffs) in izip!(
+            mesh.simplices[2].indices.chunks_exact(3),
+            mesh.barycentric_differentials::<2>()
+        )
+        .chain(izip!(
+            mesh.simplices[3].indices.chunks_exact(4),
+            mesh.barycentric_differentials::<3>()
+        )) {
+            for bary_idx in 0..diffs.len() {
+                let diff = diffs[bary_idx];
+                // get all the 1-simplices on the face opposite to the current vertex
+                // and check that they're orthogonal to the differential
+                let opposite_indices: Vec<usize> = (0..diffs.len())
+                    .filter(|i| *i != bary_idx)
+                    .map(|i| indices[i])
+                    .collect();
+                for opp_indices in opposite_indices.windows(2) {
+                    let edge = mesh.vertices[opp_indices[1]] - mesh.vertices[opp_indices[0]];
+                    assert!(
+                        edge.dot(&diff) < 0.00001,
+                        "Differential {diff} wasn't orthogonal to the opposing edge {edge}"
+                    );
+                }
+            }
+        }
     }
 }

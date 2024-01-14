@@ -15,7 +15,7 @@ use nalgebra as na;
 use nalgebra_sparse as nas;
 
 use itertools::izip;
-use std::rc::Rc;
+use std::{cell::OnceCell, rc::Rc};
 
 /// A DEC mesh where the primal cells are all simplices
 /// (points, line segments, triangles, tetrahedra etc).
@@ -62,6 +62,10 @@ pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     /// can have the mesh vertices here without duplicating data
     circumcenters: Rc<[na::SVector<f64, MESH_DIM>]>,
     barycenters: Rc<[na::SVector<f64, MESH_DIM>]>,
+    /// barycentric differentials are not always needed
+    /// and take a fair bit of memory (`simplex_size` N-vectors per simplex),
+    /// so they're computed lazily on first access
+    barycentric_differentials: OnceCell<Vec<na::SVector<f64, MESH_DIM>>>,
     /// unsigned volumes of the primal simplices
     volumes: Vec<f64>,
     /// unsigned volumes of the corresponding dual simplices
@@ -80,6 +84,7 @@ impl<const DIM: usize> Default for SimplexCollection<DIM> {
             mesh_boundary: fb::FixedBitSet::default(),
             circumcenters: Rc::from([]),
             barycenters: Rc::from([]),
+            barycentric_differentials: OnceCell::new(),
             volumes: Vec::new(),
             dual_volumes: Vec::new(),
         }
@@ -351,6 +356,25 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             _marker: std::marker::PhantomData,
         }
     }
+
+    /// Get an iterator over barycentric differentials of each `DIM`-simplex.
+    /// This is primarily useful for constructing Whitney forms by hand.
+    ///
+    /// The returned iterator yields slices of `DIM + 1` vectors.
+    /// This method isn't implemented for 0-simplices.
+    pub fn barycentric_differentials<const DIM: usize>(
+        &self,
+    ) -> std::slice::ChunksExact<na::SVector<f64, MESH_DIM>>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        na::Const<DIM>: na::DimNameSub<na::U1>,
+    {
+        let simplices = &self.simplices[DIM];
+        let bary_diffs = simplices.barycentric_differentials.get_or_init(|| {
+            mesh_construction::compute_barycentric_differentials::<DIM, MESH_DIM>(self)
+        });
+        bary_diffs.chunks_exact(simplices.simplex_size)
+    }
 }
 
 //
@@ -402,8 +426,7 @@ impl MeshPrimality for Dual {
 
 // note: these are extremely unfinished.
 // the eventual goal is to be able to access all the simplex information
-// (circumcenter, volume etc.) as well as boundaries and coboundaries
-// through these views, and ideally this should be available even through IterMut
+// (circumcenter, volume etc.) as well as boundaries and coboundaries through these views
 
 pub struct SimplexView<'a, const DIM: usize, const MESH_DIM: usize> {
     indices: &'a [usize],
