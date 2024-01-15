@@ -85,6 +85,14 @@ impl CapsStyle {
             end: style,
         }
     }
+
+    /// Preset style with an arrow cap at the end and a circle cap at the start.
+    pub fn arrows() -> Self {
+        Self {
+            start: CapStyle::Circle,
+            end: CapStyle::Arrow,
+        }
+    }
 }
 
 /// The shape to draw at the start or end of a line segment or strip.
@@ -201,7 +209,7 @@ impl Primitives {
         let arrow_cap = InstanceGeometry::upload(
             device,
             "arrow cap",
-            &[[1., 0.], [-3., 2.], [-3., -2.], [-2., 0.]],
+            &[[2., 0.], [-2., 2.], [-2., -2.], [-1., 0.]],
             &[0, 1, 3, 0, 3, 2],
         );
 

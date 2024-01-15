@@ -15,7 +15,7 @@ use vertex_colors::VertexColorsPipeline;
 
 //
 
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use nalgebra as na;
 use std::collections::HashMap;
 
@@ -151,6 +151,26 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
         self.rend.gradient_pl.draw(&self.rend.resources, self.ctx);
     }
 
+    /// Draw a primal 1-cochain as arrows interpolated at triangle barycenters.
+    pub fn velocity_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParameters) {
+        let mut arrow_segments: Vec<na::Vector3<f64>> = Vec::new();
+
+        let arrow_vecs = self.mesh.barycentric_interpolate_1(c);
+        for (bary, arrow) in izip!(self.mesh.barycenters::<2>(), arrow_vecs) {
+            arrow_segments.push(na::Vector3::new(bary.x, bary.y, 0.));
+            let end = bary + params.scaling * arrow;
+            arrow_segments.push(na::Vector3::new(end.x, end.y, 0.));
+        }
+
+        let params = LineParameters {
+            width: params.width,
+            color: params.color,
+            caps: crate::CapsStyle::arrows(),
+            ..Default::default()
+        };
+        self.lines(params, LineDrawingMode::List, &arrow_segments);
+    }
+
     /// Draw a wireframe model of the simulation mesh.
     pub fn wireframe(&mut self) {
         self.rend
@@ -194,5 +214,29 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
         self.rend
             .line_pl
             .draw(&self.rend.resources, self.ctx, params, mode, &points);
+    }
+}
+
+/// Parameters to customize how [`Painter::velocity_arrows`] draws arrows.
+pub struct ArrowParameters {
+    /// Coefficient to scale the arrow length by.
+    /// A good value depends on the scale of the mesh.
+    /// Default: 1 / 300.
+    pub scaling: f64,
+    /// Width of the arrows.
+    /// Default: 0.01 world space units.
+    pub width: crate::LineWidth,
+    /// Color of the arrows.
+    /// Default: black.
+    pub color: palette::LinSrgb,
+}
+
+impl Default for ArrowParameters {
+    fn default() -> Self {
+        Self {
+            scaling: 1. / 300.,
+            width: crate::LineWidth::WorldUnits(0.01),
+            color: palette::named::BLACK.into(),
+        }
     }
 }

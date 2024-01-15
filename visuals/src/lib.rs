@@ -12,7 +12,7 @@ pub(crate) mod pipelines;
 pub use pipelines::{
     axes::AxesParameters,
     line::{CapStyle, CapsStyle, JoinStyle, LineDrawingMode, LineParameters, LineWidth},
-    Painter,
+    ArrowParameters, Painter,
 };
 
 pub mod render_window;
