@@ -169,6 +169,15 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         self.simplices[DIM].indices.chunks_exact(DIM + 1)
     }
 
+    /// Get a slice of `DIM`-simplex barycenters.
+    #[inline]
+    pub fn barycenters<const DIM: usize>(&self) -> &[na::SVector<f64, MESH_DIM>]
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        &self.simplices[DIM].barycenters
+    }
+
     /// Get a bounding box enclosing the entire mesh.
     #[inline]
     pub fn bounds(&self) -> BoundingBox<MESH_DIM> {
@@ -357,6 +366,35 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
     }
 
+    /// Find the index of a simplex in its collection given its vertex indices.
+    ///
+    /// This is not useful very often, but can be used
+    /// to associate a cochain value with a simplex
+    /// in cases when the simplex index is not known but its vertices are.
+    ///
+    /// Returns None if no `DIM`-simplex with the given indices exists.
+    /// This is always the case if the number of indices isn't `DIM + 1`.
+    pub fn find_simplex_index<const DIM: usize>(&self, indices: &[usize]) -> Option<usize>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        let simplices = &self.simplices[DIM];
+        // construct a slice of slices containing each simplex's indices,
+        // so that we can use the built-in slice::binary_search function.
+        // we can do this because the simplices are sorted lexicographically.
+        //
+        // it would be more efficient in large meshes to build a hashmap
+        // from index arrays to simplex indices for this,
+        // but that is annoying to do in a dimension-generic way.
+        // try to do it if this ends up being used in a performance-critical place
+        let indices_chunked: Vec<&[usize]> = simplices
+            .indices
+            .chunks_exact(simplices.simplex_size)
+            .collect();
+
+        indices_chunked.binary_search(&indices).ok()
+    }
+
     /// Get an iterator over barycentric differentials of each `DIM`-simplex.
     /// This is primarily useful for constructing Whitney forms by hand.
     ///
@@ -374,6 +412,50 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             mesh_construction::compute_barycentric_differentials::<DIM, MESH_DIM>(self)
         });
         bary_diffs.chunks_exact(simplices.simplex_size)
+    }
+
+    /// Interpolate a 1-cochain defined on the edges of this mesh
+    /// into vectors at simplex barycenters using the Whitney map.
+    ///
+    /// This method is only defined for 2- and higher-dimensional meshes.
+    pub fn barycentric_interpolate_1(
+        &self,
+        c: &crate::Cochain<1, Primal>,
+    ) -> Vec<na::SVector<f64, MESH_DIM>>
+    where
+        na::Const<MESH_DIM>:
+            na::DimNameSub<na::U1> + na::DimNameSub<na::U2> + na::DimNameSub<na::Const<MESH_DIM>>,
+    {
+        let mut whitney_vals = Vec::new();
+
+        let top_simplices = &self.simplices[MESH_DIM];
+        for (indices, bary_diffs) in izip!(
+            top_simplices
+                .indices
+                .chunks_exact(top_simplices.simplex_size),
+            self.barycentric_differentials::<MESH_DIM>(),
+        ) {
+            let mut whitney_val = na::SVector::zeros();
+            // each combination of two vertices in the simplex
+            // is one of the 1-simplex edges contributing to the Whitney map
+            for (start, end) in
+                (0..indices.len() - 1).flat_map(|s| (s + 1..indices.len()).map(move |e| (s, e)))
+            {
+                let edge_indices = [indices[start], indices[end]];
+                // there's room for optimization here;
+                // find_simplex_index runs a binary search every time.
+                // if this is a notable performance hit,
+                // try recursively going through boundary maps instead
+                let cochain_idx = self.find_simplex_index::<1>(&edge_indices).unwrap();
+                // the barycentric coordinates at the barycenter are all 1 / MESH_DIM.
+                // we'll multiply this into the value at the end
+                whitney_val += c.values[cochain_idx] * (bary_diffs[start] - bary_diffs[end]);
+            }
+            whitney_val /= MESH_DIM as f64;
+            whitney_vals.push(whitney_val);
+        }
+
+        whitney_vals
     }
 }
 
