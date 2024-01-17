@@ -1,7 +1,7 @@
 //! Real-time visualization for simulations implemented with [`dexterior`].
 
 pub mod animation;
-pub use animation::{Animation, AnimationParams};
+pub use animation::{Animation, AnimationParams, AnimationState};
 
 pub mod camera;
 

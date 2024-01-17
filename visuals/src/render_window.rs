@@ -245,7 +245,7 @@ impl RenderWindow {
         &mut self,
         mut anim: super::animation::Animation<State, StepFn, DrawFn>,
     ) where
-        State: 'static,
+        State: crate::AnimationState,
         StepFn: FnMut(&mut State),
         DrawFn: FnMut(&State, &mut crate::Painter),
     {
@@ -262,6 +262,10 @@ impl RenderWindow {
             na::Vector2::new(b.max.x as f32, b.max.y as f32),
             1.0,
         );
+
+        // double-buffered simulation state for interpolated drawing
+        let mut next_state = anim.state.clone();
+        let mut prev_state = anim.state;
 
         // state for the timing of frames
         let mut frame_start_t = Instant::now();
@@ -284,7 +288,8 @@ impl RenderWindow {
                         // ...but don't go beyond a maximum to avoid the "spiral of death"
                         // where we constantly fall farther and farther behind real time
                         if steps_done < anim.params.max_steps_per_frame {
-                            (anim.step)(&mut anim.state);
+                            prev_state = next_state.clone();
+                            (anim.step)(&mut next_state);
                             steps_done += 1;
                         }
                         time_in_frame -= anim.dt;
@@ -302,7 +307,10 @@ impl RenderWindow {
                         rend: &mut renderer,
                         mesh: anim.mesh,
                     };
-                    (anim.draw)(&anim.state, &mut painter);
+
+                    let interpolated_state =
+                        State::interpolate(&prev_state, &next_state, time_in_frame / anim.dt);
+                    (anim.draw)(&interpolated_state, &mut painter);
 
                     ctx.queue.submit(Some(ctx.encoder.finish()));
                     renderer.end_frame();

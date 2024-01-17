@@ -13,6 +13,15 @@ struct State {
     v: Velocity,
 }
 
+impl dv::AnimationState for State {
+    fn interpolate(old: &Self, new: &Self, t: f64) -> Self {
+        Self {
+            p: old.p.lerp(&new.p, t),
+            v: old.v.lerp(&new.v, t),
+        }
+    }
+}
+
 struct Ops {
     p_step: dex::Op<Velocity, Pressure>,
     v_step: dex::Op<Pressure, Velocity>,
@@ -24,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // TODO: pick dt based on minimum edge length
     // (this requires an iterator with access to primal volumes)
-    let dt = 1.0 / 60.0;
+    let dt = 1. / 10.;
     let wave_speed_sq = 1.0f64.powi(2);
 
     let ops = Ops {

@@ -8,10 +8,43 @@ use super::{color_map, pipelines::Painter};
 ///
 /// To display the animation in a window,
 /// use [`RenderWindow::run_animation`][crate::RenderWindow::run_animation].
-/// See the crate examples for usage.
+/// See the `dexterior` crate examples for usage.
+///
+/// The `State` type must implement [`AnimationState`]
+/// to facilitate interpolated rendering.
+/// If you don't care about this, you can simply
+/// leave the impl block empty:
+/// ```
+/// # use dexterior_visuals::AnimationState;
+/// # #[derive(Clone)]
+/// # struct MyState;
+/// impl AnimationState for MyState {}
+/// ```
+/// Note that `MyState` must still implement `Clone`.
+/// To enable interpolation, implement the `interpolate` member function
+/// and call [`lerp`][dexterior::Cochain::lerp] for each cochain in your state:
+/// ```
+/// # use dexterior_visuals::AnimationState;
+/// use dexterior as dex;
+/// #[derive(Clone)]
+/// struct MyState {
+///     p: dex::Cochain<0, dex::Primal>,
+///     v: dex::Cochain<1, dex::Primal>,
+/// };
+/// impl AnimationState for MyState {
+///     fn interpolate(old: &Self, new: &Self, t: f64) -> Self {
+///         Self {
+///             p: old.p.lerp(&new.p, t),
+///             v: old.v.lerp(&new.v, t),
+///         }
+///     }
+/// }
+/// ```
+/// This could be done with a macro, but it's a low-priority development,
+/// so for now you have to write this boilerplate by hand.
 pub struct Animation<'mesh, State, StepFn, DrawFn>
 where
-    State: 'static,
+    State: AnimationState,
     StepFn: FnMut(&mut State),
     DrawFn: FnMut(&State, &mut Painter),
 {
@@ -67,5 +100,17 @@ impl Default for AnimationParams {
             initial_color_map: None,
             max_steps_per_frame: 4,
         }
+    }
+}
+
+/// Trait required from states given to [`Animation`]s.
+pub trait AnimationState: Clone {
+    /// Interpolate between two states.
+    ///
+    /// Used to create smooth animations even if the simulation timestep is long.
+    /// The default implementation does not do any interpolation.
+    #[allow(unused_variables)]
+    fn interpolate(old: &Self, new: &Self, t: f64) -> Self {
+        new.clone()
     }
 }
