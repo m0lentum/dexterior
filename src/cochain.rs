@@ -46,6 +46,11 @@ impl<Dimension, Primality> CochainImpl<Dimension, Primality> {
     pub(crate) fn zeros(len: usize) -> Self {
         Self::from_values(na::DVector::zeros(len))
     }
+
+    /// Linearly interpolate along the line from `self` to `end`.
+    pub fn lerp(&self, end: &Self, t: f64) -> Self {
+        self + &(t * (end - self))
+    }
 }
 
 impl<Dimension, Primality> crate::operator::Operand for CochainImpl<Dimension, Primality> {
@@ -66,6 +71,7 @@ impl<Dimension, Primality> crate::operator::Operand for CochainImpl<Dimension, P
 
 //
 // std trait impls for math ops and such
+// (many duplicated to also work with references)
 //
 
 impl<D, P> std::fmt::Debug for CochainImpl<D, P>
@@ -91,9 +97,55 @@ impl<D, P> std::ops::Add for CochainImpl<D, P> {
     }
 }
 
+impl<D, P> std::ops::Add for &CochainImpl<D, P> {
+    type Output = CochainImpl<D, P>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        CochainImpl::from_values(&self.values + &rhs.values)
+    }
+}
+
 impl<D, P> std::ops::AddAssign for CochainImpl<D, P> {
     fn add_assign(&mut self, rhs: Self) {
         self.values += rhs.values;
+    }
+}
+
+impl<D, P> std::ops::Neg for CochainImpl<D, P> {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self::from_values(-self.values)
+    }
+}
+
+impl<D, P> std::ops::Neg for &CochainImpl<D, P> {
+    type Output = CochainImpl<D, P>;
+
+    fn neg(self) -> Self::Output {
+        CochainImpl::from_values(-&self.values)
+    }
+}
+
+impl<D, P> std::ops::Sub for CochainImpl<D, P> {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::from_values(self.values - rhs.values)
+    }
+}
+
+impl<D, P> std::ops::Sub for &CochainImpl<D, P> {
+    type Output = CochainImpl<D, P>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        CochainImpl::from_values(&self.values - &rhs.values)
+    }
+}
+
+impl<D, P> std::ops::SubAssign for CochainImpl<D, P> {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.values -= rhs.values;
     }
 }
 
