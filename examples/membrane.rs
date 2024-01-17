@@ -23,11 +23,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mesh = dex::gmsh::load_trimesh_2d(msh_bytes)?;
 
     // TODO: pick dt based on minimum edge length
-    // (this requires an iterator with access to primal volumes
-    // and is currently absurdly low
-    // because I haven't implemented timing control for the real-time visualization yet
-    // so it runs way too fast :^)
-    let dt = 1.0 / 2000.0;
+    // (this requires an iterator with access to primal volumes)
+    let dt = 1.0 / 60.0;
     let wave_speed_sq = 1.0f64.powi(2);
 
     let ops = Ops {
@@ -37,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         v_step: (dt * mesh.d()).into(),
     };
 
-    let mut state = State {
+    let state = State {
         // this is zero everywhere on the boundary of the [0, pi] x [0, pi] square
         // as long as the coefficients on v[0].x and v[0].y are integers
         p: mesh.integrate_cochain(|v| f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)),
@@ -51,10 +48,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             color_map_range: Some(-1.0..1.0),
             ..Default::default()
         },
-        step: |draw| {
+        dt,
+        state,
+        step: |state| {
             state.p += &ops.p_step * &state.v;
             state.v += &ops.v_step * &state.p;
-
+        },
+        draw: |state, draw| {
             draw.vertex_colors(&state.p);
             draw.wireframe();
             draw.velocity_arrows(&state.v, dv::ArrowParameters::default());

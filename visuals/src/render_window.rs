@@ -1,5 +1,7 @@
 //! Low-level resources for window creation and rendering.
 
+use std::time::Instant;
+
 use winit::{
     event::{Event, VirtualKeyCode, WindowEvent},
     event_loop::EventLoop,
@@ -239,9 +241,13 @@ impl RenderWindow {
     /// - `Q`: end the animation and return from this function
     /// - `N`: swap to the next color map (only works if
     ///   [`Painter::set_color_map`][pl::Painter::set_color_map] is not called by the animation)
-    pub fn run_animation<StepFn>(&mut self, mut anim: super::animation::Animation<StepFn>)
-    where
-        StepFn: FnMut(&mut crate::Painter),
+    pub fn run_animation<State, StepFn, DrawFn>(
+        &mut self,
+        mut anim: super::animation::Animation<State, StepFn, DrawFn>,
+    ) where
+        State: 'static,
+        StepFn: FnMut(&mut State),
+        DrawFn: FnMut(&State, &mut crate::Painter),
     {
         let mut renderer = pl::Renderer::new(self, anim.mesh, &anim.params);
 
@@ -257,6 +263,10 @@ impl RenderWindow {
             1.0,
         );
 
+        // state for the timing of frames
+        let mut frame_start_t = Instant::now();
+        let mut time_in_frame = 0.;
+
         // take the event loop out of `self` to be able to call methods on `self` inside the loop
         let mut event_loop = self.event_loop.take().unwrap();
         use winit::platform::run_return::EventLoopExtRunReturn;
@@ -264,7 +274,25 @@ impl RenderWindow {
             control_flow.set_poll();
             match event {
                 Event::MainEventsCleared => {
-                    // TODO: timing control
+                    // step as many times as needed to keep up with real time
+
+                    let since_last_draw = frame_start_t.elapsed().as_secs_f64();
+                    time_in_frame += since_last_draw;
+
+                    let mut steps_done = 0;
+                    while time_in_frame > anim.dt {
+                        // ...but don't go beyond a maximum to avoid the "spiral of death"
+                        // where we constantly fall farther and farther behind real time
+                        if steps_done < anim.params.max_steps_per_frame {
+                            (anim.step)(&mut anim.state);
+                            steps_done += 1;
+                        }
+                        time_in_frame -= anim.dt;
+                    }
+
+                    // draw
+
+                    frame_start_t = Instant::now();
 
                     let mut ctx = self.begin_frame();
                     renderer.resources.upload_frame_uniforms(&camera, &mut ctx);
@@ -274,7 +302,7 @@ impl RenderWindow {
                         rend: &mut renderer,
                         mesh: anim.mesh,
                     };
-                    (anim.step)(&mut painter);
+                    (anim.draw)(&anim.state, &mut painter);
 
                     ctx.queue.submit(Some(ctx.encoder.finish()));
                     renderer.end_frame();
