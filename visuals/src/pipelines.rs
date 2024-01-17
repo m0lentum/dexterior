@@ -221,7 +221,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
 pub struct ArrowParameters {
     /// Coefficient to scale the arrow length by.
     /// A good value depends on the scale of the mesh.
-    /// Default: 1 / 300.
+    /// Default: 0.1.
     pub scaling: f64,
     /// Width of the arrows.
     /// Default: 0.01 world space units.
@@ -234,7 +234,7 @@ pub struct ArrowParameters {
 impl Default for ArrowParameters {
     fn default() -> Self {
         Self {
-            scaling: 1. / 300.,
+            scaling: 0.1,
             width: crate::LineWidth::WorldUnits(0.01),
             color: palette::named::BLACK.into(),
         }
