@@ -1,15 +1,57 @@
-/*! NOTE: this library is very much a work in progress.
-It can already perform some simple simulations,
-but many features are still missing
-and breaking changes will happen a lot.
-
-Dexterior provides building blocks
+/*!
+`dexterior` provides building blocks
 for the discretization of partial differential equations
-using Discrete Exterior Calculus (DEC).
-A simplicial mesh of any dimension can be processed into a DEC primal/dual mesh pair,
-on which cochains and operators can be defined.
-To the extent possible, the existence and interactions of operators and cochains
-is checked at compile-time to ensure correct use.
+using the mathematical framework of Discrete Exterior Calculus (DEC).
+These building blocks are sparse matrix operators
+(exterior derivative, Hodge star) and vector operands (cochains)
+associated with a simplicial mesh of any dimension.
+An effort is made to provide as many compile-time checks
+and type inference opportunities as possible
+to produce concise and correct code.
+
+A companion crate, `dexterior-visuals`, provides some batteries-included tools
+to visualize simulations implemented with `dexterior` in real time.
+
+# Example
+
+To give you a taste of the basic features available,
+the following code implements a simple acoustic wave simulation:
+
+```
+use dexterior as dex;
+
+// type aliases for simulation variables ease readability
+type Pressure = dex::Cochain<0, dex::Primal>;
+type Velocity = dex::Cochain<1, dex::Primal>;
+
+// meshes can be loaded from files generated with `gmsh`
+let msh_bytes = include_bytes!("../examples/meshes/2d_square_pi_x_pi.msh");
+let mesh = dex::gmsh::load_trimesh_2d(msh_bytes).expect("Failed to load mesh");
+
+let dt = 0.1;
+// generic operator expressed with its input and output type.
+// type inference figures out which dimensions of `star` and `d` we need
+// to make this expression match the type
+let p_step: dex::Op<Velocity, Pressure> =
+    -dt * mesh.star() * mesh.d() * mesh.star();
+// type inference also knows which `d` we mean here
+// because we multiply `p` by this operator later
+let v_step = dt * mesh.d();
+
+// integrate an initial state function into discrete cochains
+let mut p: Pressure = mesh.integrate_cochain(|v| {
+    f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)
+});
+let mut v: Velocity = mesh.new_zero_cochain();
+
+// step the simulation forward in time
+for _step in 0..10 {
+    p += &p_step * &v;
+    v += &v_step * &p;
+}
+```
+
+For examples including visuals, see the examples in the [repo].
 
 # Recommended reading
 
@@ -238,10 +280,11 @@ let d = mesh.d::<2, Primal>();
 Real-time visualization of the computation mesh and values of cochains
 is available in the `dexterior-visuals` crate.
 Currently only a few specific cases are supported; more to come later.
-See the examples in the `dexterior` repo for usage.
-*/
+See the examples in the [repo] for usage.
 
-// core modules
+[repo]: https://github.com/m0lentum/dexterior
+[pydec]: https://github.com/hirani/pydec/
+*/
 
 pub mod mesh;
 #[doc(inline)]
@@ -254,7 +297,5 @@ pub use cochain::Cochain;
 pub mod operator;
 #[doc(inline)]
 pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Op, Operator};
-
-// additional modules that will probably become optional when the lib gets more mature
 
 pub mod gmsh;

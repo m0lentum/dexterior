@@ -5,6 +5,7 @@ members = ["visuals"]
 authors = ["Mikael Myyrä <mikael.b.myyra@jyu.fi>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/m0lentum/dexterior"
 
 [workspace.dependencies]
 itertools = "0.11.0"
@@ -15,9 +16,13 @@ thiserror = "1.0.50"
 [package]
 name = "dexterior"
 version = "0.1.0"
+description = "Discrete Exterior Calculus toolkit"
+keywords = ["dec", "differential-equations"]
+categories = ["mathematics", "science"]
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 itertools.workspace = true
