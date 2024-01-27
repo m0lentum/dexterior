@@ -353,6 +353,15 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             .map(compute_diag_val),
         );
 
+        // for dual star, compute sign to match the definition
+        // star^2 = (-1)^(k*(n-k))
+        // where n is the mesh dimension and k is the primal star dimension
+        let diag = if !Primality::IS_PRIMAL && primal_dim * (MESH_DIM - primal_dim) % 2 != 0 {
+            -diag
+        } else {
+            diag
+        };
+
         crate::HodgeStar::new(diag)
     }
 
