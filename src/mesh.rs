@@ -542,10 +542,11 @@ impl<'a, const DIM: usize, const MESH_DIM: usize> Iterator for SimplexIter<'a, D
     type Item = SimplexView<'a, DIM, MESH_DIM>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.index += 1;
         if self.index >= self.len {
             return None;
         }
-        Some(self.mesh.get_simplex_by_index::<DIM>(self.index))
+        let ret = self.mesh.get_simplex_by_index::<DIM>(self.index);
+        self.index += 1;
+        Some(ret)
     }
 }
