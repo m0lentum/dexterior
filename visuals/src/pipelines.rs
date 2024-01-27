@@ -151,11 +151,36 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
         self.rend.gradient_pl.draw(&self.rend.resources, self.ctx);
     }
 
-    /// Draw a primal 1-cochain as arrows interpolated at triangle barycenters.
+    /// Draw a primal 1-cochain representing a velocity in the edge tangent direction
+    /// as arrows interpolated at triangle barycenters.
     pub fn velocity_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParameters) {
+        self._arrows(c, params, |v| v);
+    }
+
+    /// Draw a primal 1-cochain representing a flux in the edge normal direction
+    /// as arrows interpolated at triangle barycenters.
+    pub fn flux_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParameters) {
+        // the interpolation works as if the cochain was integrated in the tangent direction;
+        // the actual direction of flux is orthogonal to that
+        self._arrows(c, params, |v| na::Vector2::new(v.y, -v.x));
+    }
+
+    /// Internal method to draw arrows potentially with a transformation applied;
+    /// an abstraction to reduce duplication between velocity and flux arrow methods.
+    fn _arrows(
+        &mut self,
+        c: &dex::Cochain<1, dex::Primal>,
+        params: ArrowParameters,
+        map_arrow: impl Fn(na::Vector2<f64>) -> na::Vector2<f64>,
+    ) {
         let mut arrow_segments: Vec<na::Vector3<f64>> = Vec::new();
 
-        let arrow_vecs = self.mesh.barycentric_interpolate_1(c);
+        let arrow_vecs: Vec<na::Vector2<f64>> = self
+            .mesh
+            .barycentric_interpolate_1(c)
+            .into_iter()
+            .map(map_arrow)
+            .collect();
         for (bary, arrow) in izip!(self.mesh.barycenters::<2>(), arrow_vecs) {
             arrow_segments.push(na::Vector3::new(bary.x, bary.y, 0.));
             let end = bary + params.scaling * arrow;
