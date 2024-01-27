@@ -1,7 +1,7 @@
 //! Utilities for loading meshes generated with [`gmsh`](https://www.gmsh.info/).
 //!
 //! Only version 4.1 of the MSH format is supported,
-//! as per the [`mshio`](https://crates.io/crates/mshio) library.
+//! as per the [`mshio`] library.
 
 /// Error in loading a mesh from a Gmsh .msh file.
 #[derive(thiserror::Error, Debug)]

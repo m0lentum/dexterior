@@ -152,9 +152,10 @@ let primal_star_1 = mesh.star::<1, Primal>();
 ```
 constructs a Hodge star mapping primal 1-cochains to dual `n-1`-cochains,
 where `n` is the dimension of the mesh.
-Its inverse is the dual `n-1`-dimensional star,
-and applying both in succession is equivalent to the identity operation.
-Let us illustrate this with a 3D mesh to make the dimensions more clear:
+The inverse of the `k`-dimensional star is the dual `n-k`-dimensional star,
+with a sign depending on the dimensions of the mesh and the star.
+Applying both in succession is equivalent to multiplication by `(-1)^(k * (n - k))`.
+Let us illustrate this with a 3D mesh:
 ```
 # use dexterior::{mesh::tiny_mesh_3d as some_mesh, SimplicialMesh, Primal, Dual};
 let mesh: SimplicialMesh<3> = some_mesh();
