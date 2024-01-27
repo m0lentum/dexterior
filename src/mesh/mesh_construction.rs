@@ -716,11 +716,11 @@ pub fn tiny_mesh_2d() -> SimplicialMesh<2> {
     #[rustfmt::skip]
         let indices = vec![
             0, 2, 3,
-            0, 1, 3,
+            0, 3, 1,
             1, 3, 4,
-            2, 3, 5,
+            2, 5, 3,
             3, 5, 6,
-            3, 4, 6,
+            3, 6, 4,
         ];
     SimplicialMesh::new(vertices, indices)
 }
@@ -750,10 +750,10 @@ pub fn tiny_mesh_3d() -> SimplicialMesh<3> {
     ];
     #[rustfmt::skip]
         let indices = vec![
-            0, 1, 2, 4,
+            0, 1, 4, 2,
             0, 1, 2, 5,
             1, 2, 3, 4,
-            1, 2, 3, 5,
+            1, 2, 5, 3,
         ];
 
     SimplicialMesh::new(vertices, indices)
@@ -793,11 +793,11 @@ mod tests {
         #[rustfmt::skip]
         let expected_2_boundaries = vec![
             (1, 1), (2, -1), (5, 1),
-            (0, 1), (2, -1), (3, 1),
+            (0, -1), (2, 1), (3, -1),
             (3, 1), (4, -1), (7, 1),
-            (5, 1), (6, -1), (8, 1),
+            (5, -1), (6, 1), (8, -1),
             (8, 1), (9, -1), (11, 1),
-            (7, 1), (9, -1), (10, 1),
+            (7, -1), (9, 1), (10, -1),
         ];
         let actual_2_boundaries: Vec<(usize, i8)> = mesh.simplices[2]
             .boundary_map
@@ -1027,10 +1027,10 @@ mod tests {
 
         #[rustfmt::skip]
         let expected_3_boundaries = vec![
-            (0, -1), (1, 1), (3, -1), (6, 1),
+            (0, 1), (1, -1), (3, 1), (6, -1),
             (0, -1), (2, 1), (4, -1), (7, 1),
             (5, -1), (6, 1), (8, -1), (10, 1),
-            (5, -1), (7, 1), (9, -1), (11, 1),
+            (5, 1), (7, -1), (9, 1), (11, -1),
         ];
         let actual_3_boundaries: Vec<(usize, isize)> = mesh.simplices[3]
             .boundary_map
