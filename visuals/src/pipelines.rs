@@ -7,9 +7,6 @@ use line::{LineDrawingMode, LineParameters, LinePipeline};
 pub(crate) mod axes;
 use axes::AxesParameters;
 
-mod wireframe;
-use wireframe::WireframePipeline;
-
 mod vertex_colors;
 use vertex_colors::VertexColorsPipeline;
 
@@ -23,7 +20,6 @@ use crate::render_window::{RenderContext, RenderWindow};
 use dexterior as dex;
 
 pub(crate) struct Renderer {
-    vertex_color_pl: WireframePipeline,
     gradient_pl: VertexColorsPipeline,
     line_pl: LinePipeline,
     // some GPU resources are shared between different pipelines
@@ -65,7 +61,6 @@ impl Renderer {
         };
 
         Self {
-            vertex_color_pl: WireframePipeline::new(window, mesh, &resources),
             gradient_pl: VertexColorsPipeline::new(window, mesh, &resources),
             line_pl: LinePipeline::new(window, &resources),
             resources,
@@ -197,10 +192,20 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     }
 
     /// Draw a wireframe model of the simulation mesh.
-    pub fn wireframe(&mut self) {
-        self.rend
-            .vertex_color_pl
-            .draw(&self.rend.resources, self.ctx);
+    pub fn wireframe(&mut self, params: WireframeParameters) {
+        let params = LineParameters {
+            width: params.width,
+            color: params.color,
+            joins: crate::JoinStyle::None,
+            caps: crate::CapsStyle::both(crate::CapStyle::Circle),
+        };
+        // TODO: caching of static lines to avoid re-uploading this every time
+        // (also same for axes)
+        let mut points: Vec<na::Vector3<f64>> = Vec::with_capacity(self.mesh.simplex_count::<1>());
+        for simplex in self.mesh.simplices::<1>() {
+            points.extend(simplex.vertices().map(|v| na::Vector3::new(v.x, v.y, 0.)));
+        }
+        self.lines(params, LineDrawingMode::List, &points);
     }
 
     /// Draw a set of axes around the mesh.
@@ -242,7 +247,29 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     }
 }
 
-/// Parameters to customize how [`Painter::velocity_arrows`] draws arrows.
+/// Parameters to customize how [`Painter`] draws mesh wireframes.
+#[derive(Clone, Copy, Debug)]
+pub struct WireframeParameters {
+    /// Width of the lines.
+    /// A good value depends on the scale of the mesh.
+    /// Default: 0.01 world space units.
+    pub width: crate::LineWidth,
+    /// Color of the lines.
+    /// Default: black.
+    pub color: palette::LinSrgb,
+}
+
+impl Default for WireframeParameters {
+    fn default() -> Self {
+        Self {
+            width: crate::LineWidth::WorldUnits(0.01),
+            color: palette::named::BLACK.into(),
+        }
+    }
+}
+
+/// Parameters to customize how [`Painter`] draws arrows.
+#[derive(Clone, Copy, Debug)]
 pub struct ArrowParameters {
     /// Coefficient to scale the arrow length by.
     /// A good value depends on the scale of the mesh.

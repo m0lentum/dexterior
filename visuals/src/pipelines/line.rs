@@ -78,6 +78,13 @@ pub struct CapsStyle {
 }
 
 impl CapsStyle {
+    pub fn none() -> Self {
+        Self {
+            start: CapStyle::None,
+            end: CapStyle::None,
+        }
+    }
+
     /// Create a cap style with the same shape at both ends.
     pub fn both(style: CapStyle) -> Self {
         Self {

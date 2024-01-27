@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         draw: |state, draw| {
             draw.vertex_colors(&state.p);
-            draw.wireframe();
+            draw.wireframe(dv::WireframeParameters::default());
             draw.velocity_arrows(&state.v, dv::ArrowParameters::default());
             draw.axes_2d(dv::AxesParameters {
                 minor_ticks: 9,

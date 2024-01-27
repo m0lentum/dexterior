@@ -96,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         draw: |state, draw| {
             // TODO: draw pressure as solid colored triangles
-            draw.wireframe();
+            draw.wireframe(dv::WireframeParameters::default());
             draw.flux_arrows(&state.q, dv::ArrowParameters::default());
             draw.axes_2d(dv::AxesParameters::default());
         },
