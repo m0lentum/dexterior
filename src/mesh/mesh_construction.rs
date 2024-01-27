@@ -10,6 +10,7 @@ use super::{BoundingBox, SimplexCollection, SimplicialMesh};
 ///
 /// The indices are given as a flat array,
 /// where every `DIM + 1` indices correspond to one `DIM`-simplex.
+/// The indices are expected to be ordered such that every simplex has the same orientation.
 pub fn build_mesh<const MESH_DIM: usize>(
     vertices: Vec<na::SVector<f64, MESH_DIM>>,
     indices: Vec<usize>,
@@ -44,9 +45,28 @@ pub fn build_mesh<const MESH_DIM: usize>(
     simplices[MESH_DIM].indices = indices;
     // by convention, sort simplices to have their indices in ascending order.
     // this simplifies things by enabling a consistent way
-    // to identify a simplex with its vertices
+    // to identify a simplex with its vertices.
+    // sorting may flip the orientation of the simplex,
+    // which has an effect on the signs of boundary operators,
+    // so we use a custom insertion sort that tracks the number of swaps made
+    let mut top_simplex_orientations: Vec<i8> = Vec::new();
     for simplex in simplices[MESH_DIM].indices.chunks_exact_mut(MESH_DIM + 1) {
-        simplex.sort_unstable();
+        let mut orientation = 1;
+        for i in 1..simplex.len() {
+            let curr = simplex[i];
+            if simplex[i - 1] > curr {
+                orientation = -orientation;
+                // move previous elements forward until the correct spot for `curr` is found
+                simplex[i] = simplex[i - 1];
+                let mut j = i - 1;
+                while j > 0 && simplex[j - 1] > curr {
+                    simplex[j] = simplex[j - 1];
+                    j -= 1;
+                }
+                simplex[j] = curr;
+            }
+        }
+        top_simplex_orientations.push(orientation);
     }
 
     // rest of the levels are inferred
@@ -90,9 +110,17 @@ pub fn build_mesh<const MESH_DIM: usize>(
 
         for (simplex_idx, indices) in upper_simplices
             .indices
-            .chunks_exact_mut(upper_simplices.simplex_size)
+            .chunks_exact(upper_simplices.simplex_size)
             .enumerate()
         {
+            // for top-level simplices, the boundary orientations need to be flipped
+            // if the simplex orientation is negative
+            let initial_orientation = if upper_simplices.simplex_size == MESH_DIM + 1 {
+                top_simplex_orientations[simplex_idx]
+            } else {
+                1
+            };
+
             // every unique combination of vertices in the upper simplex
             // is a simplex on its boundary
             for exclude_idx in 0..upper_simplices.simplex_size {
@@ -107,7 +135,13 @@ pub fn build_mesh<const MESH_DIM: usize>(
                 // when defined in this order.
                 // see Discrete Differential Forms for Computational Modeling by Desbrun et al. (2006)
                 // https://dl.acm.org/doi/pdf/10.1145/1185657.1185665
-                let orientation = if exclude_idx % 2 == 0 { 1 } else { -1 };
+                // they also inherit the orientation of their parent
+                // (see the PyDEC paper section 7)
+                let orientation = if exclude_idx % 2 == 0 {
+                    initial_orientation
+                } else {
+                    -initial_orientation
+                };
 
                 boundary_vert_indices.extend_from_slice(&curr_simplex);
                 boundary_orientations.push(orientation);
