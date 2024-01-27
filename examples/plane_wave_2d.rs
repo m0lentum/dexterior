@@ -38,9 +38,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msh_bytes = include_bytes!("./meshes/2d_square_pi_x_pi.msh");
     let mesh = dex::gmsh::load_trimesh_2d(msh_bytes)?;
 
-    let dt = 1. / 10.;
+    let dt = 1. / 60.;
     let wave_speed = 1f64;
-    let wave_dir = na::Unit::new_normalize(na::Vector2::new(0., 1.));
+    let wave_dir = na::Unit::new_normalize(na::Vector2::new(1., 1.));
     let wavenumber = 2.;
     let wave_vector = wavenumber * *wave_dir;
     let wave_angular_vel = wavenumber * wave_speed;
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = State {
         p: mesh.integrate_cochain(|v| eval_wave_pressure(0., &v[0])),
-        q: mesh.integrate_cochain(|v| eval_wave_flux(0., v)),
+        q: mesh.integrate_cochain(|v| eval_wave_flux(dt / 2., v)),
         t: 0.,
     };
 
