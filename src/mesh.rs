@@ -369,9 +369,14 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         crate::HodgeStar::new(diag)
     }
 
+    /// Get the set of `DIM`-simplices on the mesh boundary.
+    ///
+    /// This method does not exist for the highest-dimensional simplices in the mesh,
+    /// as they are all in the mesh interior.
     pub fn boundary<const DIM: usize>(&self) -> SubsetRef<'_, na::Const<DIM>, Primal>
     where
-        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        na::Const<DIM>: na::DimNameAdd<na::U1>,
+        na::Const<MESH_DIM>: na::DimNameSub<na::DimNameSum<na::Const<DIM>, na::U1>>,
     {
         SubsetRef {
             indices: &self.simplices[DIM].mesh_boundary,
