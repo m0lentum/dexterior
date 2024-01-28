@@ -27,9 +27,9 @@ pub use color_map::{builtin_color_maps, Color, ColorMap};
 pub(crate) mod pipelines;
 #[doc(inline)]
 pub use pipelines::{
-    axes::AxesParameters,
-    line::{CapStyle, CapsStyle, JoinStyle, LineDrawingMode, LineParameters, LineWidth},
-    ArrowParameters, Painter, WireframeParameters,
+    axes::AxesParams,
+    line::{CapStyle, CapsStyle, JoinStyle, LineDrawingMode, LineParams, LineWidth},
+    ArrowParams, Painter, WireframeParams,
 };
 
 mod render_window;

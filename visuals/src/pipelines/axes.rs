@@ -1,8 +1,8 @@
-use crate::{pipelines::LineDrawingMode, CapStyle, CapsStyle, LineParameters, LineWidth};
+use crate::{pipelines::LineDrawingMode, CapStyle, CapsStyle, LineParams, LineWidth};
 
 /// Parameters to configure the drawing of axis lines.
 #[derive(Clone, Copy, Debug)]
-pub struct AxesParameters {
+pub struct AxesParams {
     /// Distance between the extreme corners of the mesh
     /// and the axis lines in world space.
     /// Default: 0.2.
@@ -25,7 +25,7 @@ pub struct AxesParameters {
     pub color: palette::LinSrgb,
 }
 
-impl Default for AxesParameters {
+impl Default for AxesParams {
     fn default() -> Self {
         Self {
             padding: 0.2,
@@ -38,8 +38,8 @@ impl Default for AxesParameters {
     }
 }
 
-pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParameters) {
-    let mut draw = |line_params: LineParameters, points: &[[f32; 3]]| {
+pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParams) {
+    let mut draw = |line_params: LineParams, points: &[[f32; 3]]| {
         painter.rend.line_pl.draw(
             &painter.rend.resources,
             painter.ctx,
@@ -49,7 +49,7 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParameters) {
         );
     };
 
-    let params_proto = LineParameters {
+    let params_proto = LineParams {
         width: params.width,
         color: params.color,
         ..Default::default()
@@ -66,7 +66,7 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParameters) {
     let y_max = [origin[0], bounds.max.y as f32 + params.padding, 0.0];
 
     draw(
-        LineParameters {
+        LineParams {
             caps: CapsStyle {
                 start: CapStyle::Circle,
                 end: CapStyle::Arrow,
@@ -125,7 +125,7 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParameters) {
 
     draw(params_proto, &major_tick_points);
     draw(
-        LineParameters {
+        LineParams {
             width: params.width * 0.5,
             ..params_proto
         },

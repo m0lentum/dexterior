@@ -9,7 +9,7 @@ use crate::render_window::RenderContext;
 
 /// Parameters to configure the drawing of lines.
 #[derive(Clone, Copy, Debug)]
-pub struct LineParameters {
+pub struct LineParams {
     /// Width of the line, either in pixels or in world units.
     /// Default: 1 screenspace pixel.
     pub width: LineWidth,
@@ -26,7 +26,7 @@ pub struct LineParameters {
     pub caps: CapsStyle,
 }
 
-impl Default for LineParameters {
+impl Default for LineParams {
     fn default() -> Self {
         Self {
             width: LineWidth::ScreenPixels(1.0),
@@ -493,7 +493,7 @@ impl LinePipeline {
         &mut self,
         res: &super::SharedResources,
         ctx: &mut RenderContext,
-        params: LineParameters,
+        params: LineParams,
         mode: LineDrawingMode,
         points: &[[f32; 3]],
     ) {

@@ -2,10 +2,10 @@ mod resources;
 use resources::SharedResources;
 
 pub(crate) mod line;
-use line::{LineDrawingMode, LineParameters, LinePipeline};
+use line::{LineDrawingMode, LineParams, LinePipeline};
 
 pub(crate) mod axes;
-use axes::AxesParameters;
+use axes::AxesParams;
 
 mod vertex_colors;
 use vertex_colors::VertexColorsPipeline;
@@ -148,13 +148,13 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
 
     /// Draw a primal 1-cochain representing a velocity in the edge tangent direction
     /// as arrows interpolated at triangle barycenters.
-    pub fn velocity_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParameters) {
+    pub fn velocity_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParams) {
         self.arrows(c, params, |v| v);
     }
 
     /// Draw a primal 1-cochain representing a flux in the edge normal direction
     /// as arrows interpolated at triangle barycenters.
-    pub fn flux_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParameters) {
+    pub fn flux_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParams) {
         // the interpolation works as if the cochain was integrated in the tangent direction;
         // the actual direction of flux is orthogonal to that
         self.arrows(c, params, |v| na::Vector2::new(v.y, -v.x));
@@ -165,7 +165,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     fn arrows(
         &mut self,
         c: &dex::Cochain<1, dex::Primal>,
-        params: ArrowParameters,
+        params: ArrowParams,
         map_arrow: impl Fn(na::Vector2<f64>) -> na::Vector2<f64>,
     ) {
         let mut arrow_segments: Vec<na::Vector3<f64>> = Vec::new();
@@ -182,7 +182,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
             arrow_segments.push(na::Vector3::new(end.x, end.y, 0.));
         }
 
-        let params = LineParameters {
+        let params = LineParams {
             width: params.width,
             color: params.color,
             caps: crate::CapsStyle::arrows(),
@@ -192,8 +192,8 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     }
 
     /// Draw a wireframe model of the simulation mesh.
-    pub fn wireframe(&mut self, params: WireframeParameters) {
-        let params = LineParameters {
+    pub fn wireframe(&mut self, params: WireframeParams) {
+        let params = LineParams {
             width: params.width,
             color: params.color,
             joins: crate::JoinStyle::None,
@@ -209,7 +209,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     }
 
     /// Draw a set of axes around the mesh.
-    pub fn axes_2d(&mut self, params: AxesParameters) {
+    pub fn axes_2d(&mut self, params: AxesParams) {
         axes::axes_2d(self, params);
     }
 
@@ -218,7 +218,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     /// Every two points in `points` define a distinct segment,
     /// with a gap left between them.
     #[inline]
-    pub fn line_list(&mut self, params: LineParameters, points: &[na::Vector3<f64>]) {
+    pub fn line_list(&mut self, params: LineParams, points: &[na::Vector3<f64>]) {
         self.lines(params, LineDrawingMode::List, points);
     }
 
@@ -227,16 +227,11 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     /// Every point in `points` is connected
     /// to both the next and previous one with a line segments.
     #[inline]
-    pub fn line_strip(&mut self, params: LineParameters, points: &[na::Vector3<f64>]) {
+    pub fn line_strip(&mut self, params: LineParams, points: &[na::Vector3<f64>]) {
         self.lines(params, LineDrawingMode::Strip, points);
     }
 
-    fn lines(
-        &mut self,
-        params: LineParameters,
-        mode: LineDrawingMode,
-        points: &[na::Vector3<f64>],
-    ) {
+    fn lines(&mut self, params: LineParams, mode: LineDrawingMode, points: &[na::Vector3<f64>]) {
         let points: Vec<[f32; 3]> = points
             .iter()
             .map(|p| [p.x as f32, p.y as f32, p.z as f32])
@@ -249,7 +244,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
 
 /// Parameters to configure the drawing of mesh wireframes.
 #[derive(Clone, Copy, Debug)]
-pub struct WireframeParameters {
+pub struct WireframeParams {
     /// Width of the lines.
     /// A good value depends on the scale of the mesh.
     /// Default: 0.01 world space units.
@@ -259,7 +254,7 @@ pub struct WireframeParameters {
     pub color: palette::LinSrgb,
 }
 
-impl Default for WireframeParameters {
+impl Default for WireframeParams {
     fn default() -> Self {
         Self {
             width: crate::LineWidth::WorldUnits(0.01),
@@ -270,7 +265,7 @@ impl Default for WireframeParameters {
 
 /// Parameters to configure the drawing of arrows.
 #[derive(Clone, Copy, Debug)]
-pub struct ArrowParameters {
+pub struct ArrowParams {
     /// Coefficient to scale the arrow length by.
     /// A good value depends on the scale of the mesh.
     /// Default: 0.1.
@@ -283,7 +278,7 @@ pub struct ArrowParameters {
     pub color: palette::LinSrgb,
 }
 
-impl Default for ArrowParameters {
+impl Default for ArrowParams {
     fn default() -> Self {
         Self {
             scaling: 0.1,
