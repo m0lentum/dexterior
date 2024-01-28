@@ -22,7 +22,7 @@ implementing most of [PyDEC]'s functionality relevant to PDEs,
 but it hasn't been tested with many cases yet.
 Some known rough edges remain.
 The visuals crate is quite limited at the moment,
-supporting only a narrow subset of 2D simulations.
+supporting only a few specific 2D use cases.
 
 ## Example
 
@@ -62,6 +62,33 @@ for _step in 0..10 {
     v += &v_step * &p;
 }
 ```
+
+## References and recommended reading
+
+`dexterior` is largely inspired by the [PyDEC] library for Python,
+the most comprehensive implementation of DEC I know of.
+The accompanying paper [PyDEC: Software and Algorithms
+for Discretization of Exterior Calculus](https://dl.acm.org/doi/10.1145/2382585.2382588)
+by Hirani and Bell (2012) has been an invaluable aid in development.
+
+More articles I wish to credit:
+- Desbrun, M., Hirani, A., Leok, M. & Marsden, J. (2005).
+  [Discrete Exterior Calculus](https://arxiv.org/pdf/math/0508341.pdf)
+- Hirani, A., Kalyanaraman, K. & VanderZee, E. (2012).
+  [Delaunay Hodge star](https://www.sciencedirect.com/science/article/pii/S0010448512002436)
+
+For a tutorial on the basics of DEC and in-depth explanations
+of the acoustics examples in this repo, see my master's thesis:
+- Myyrä, M. (2023). [Discrete exterior calculus and exact controllability
+  for time-harmonic acoustic wave simulation](http://urn.fi/URN:NBN:fi:jyu-202310035379)
+
+Additional recommendations for readers new to the topic or in need of a refresher:
+- Desbrun, M., Kanso, E. & Tong, Y. (2006).
+  [Discrete Differential Forms for Computational Modeling](https://dl.acm.org/doi/pdf/10.1145/1185657.1185665)
+- Blair Perot, J. & Zusi, C. (2014).
+  [Differential forms for scientists and engineers ](https://www.sciencedirect.com/science/article/pii/S0021999113005354)
+- Crane, K., de Goes, F., Desbrun, M. & Schröder, P. (2013).
+  [Digital geometry processing with discrete exterior calculus ](https://dl.acm.org/doi/pdf/10.1145/2504435.2504442)
 
 ## License
 

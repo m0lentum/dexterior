@@ -53,22 +53,6 @@ for _step in 0..10 {
 
 For examples including visuals, see the examples in the [repo].
 
-# Recommended reading
-
-This documentation will not explain what exterior calculus is
-or how to derive equations to solve with this library.
-For curious readers unfamiliar with the topic or in need of a refresher,
-[the author's master's thesis](http://urn.fi/URN:NBN:fi:jyu-202310035379)
-provides a relatively accessible tutorial.
-For more detail and mathematical rigor (but still an approachable tone),
-see the following texts:
-- Blair Perot, J. & Zusi, C. (2014). [Differential forms for scientists and engineers
-  ](https://www.sciencedirect.com/science/article/pii/S0021999113005354)
-- Crane, K. et al. (2013). [Digital geometry processing with discrete exterior calculus
-  ](https://dl.acm.org/doi/pdf/10.1145/2504435.2504442)
-- Desbrun, M., Kanso, E. & Tong, Y. (2006). [Discrete differential forms
-  for Computational Modeling](https://dl.acm.org/doi/pdf/10.1145/1185657.1185665)
-
 # Meshes
 
 The core of a DEC discretization is the computation mesh,
