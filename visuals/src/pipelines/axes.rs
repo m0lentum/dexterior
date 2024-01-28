@@ -14,7 +14,7 @@ pub struct AxesParams {
     /// Default: 0.05.
     pub tick_length: f32,
     /// Number of minor tick lines between each major one.
-    /// Default: 3.
+    /// Default: 9.
     pub minor_ticks: usize,
     /// Width of the main axis lines and major ticks.
     /// Minor ticks have a fraction of this width.
@@ -31,7 +31,7 @@ impl Default for AxesParams {
             padding: 0.2,
             tick_interval: 1.,
             tick_length: 0.05,
-            minor_ticks: 3,
+            minor_ticks: 9,
             width: LineWidth::ScreenPixels(4.),
             color: palette::named::BLACK.into(),
         }

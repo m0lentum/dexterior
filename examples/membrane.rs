@@ -84,10 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             draw.vertex_colors(&state.p);
             draw.wireframe(dv::WireframeParams::default());
             draw.velocity_arrows(&state.v, dv::ArrowParams::default());
-            draw.axes_2d(dv::AxesParams {
-                minor_ticks: 9,
-                ..Default::default()
-            });
+            draw.axes_2d(dv::AxesParams::default());
         },
     });
 
