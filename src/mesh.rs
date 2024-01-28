@@ -15,7 +15,7 @@ use nalgebra as na;
 use nalgebra_sparse as nas;
 
 use itertools::izip;
-use std::{cell::OnceCell, rc::Rc};
+use std::{cell::OnceCell, collections::HashMap, rc::Rc};
 
 /// A DEC mesh where the primal cells are all simplices
 /// (points, line segments, triangles, tetrahedra etc).
@@ -44,6 +44,9 @@ pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     simplex_size: usize,
     /// indices stored in a flat Vec to avoid generics for dimension
     pub indices: Vec<usize>,
+    /// map from the vertex indices of a simplex to its index in this collection.
+    /// constructed lazily in `SimplicialMesh::find_simplex_index`.
+    index_map: OnceCell<HashMap<Vec<usize>, usize>>,
     /// matrix where the rows correspond to DIM-simplices,
     /// the columns to (DIM-1) simplices,
     /// and the values of -1 or 1 to the relative orientation of the boundary.
@@ -79,6 +82,7 @@ impl<const DIM: usize> Default for SimplexCollection<DIM> {
         Self {
             simplex_size: 0,
             indices: Vec::new(),
+            index_map: OnceCell::new(),
             boundary_map: nas::CsrMatrix::zeros(0, 0),
             coboundary_map: nas::CsrMatrix::zeros(0, 0),
             mesh_boundary: fb::FixedBitSet::default(),
@@ -388,20 +392,15 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
     {
         let simplices = &self.simplices[DIM];
-        // construct a slice of slices containing each simplex's indices,
-        // so that we can use the built-in slice::binary_search function.
-        // we can do this because the simplices are sorted lexicographically.
-        //
-        // it would be more efficient in large meshes to build a hashmap
-        // from index arrays to simplex indices for this,
-        // but that is annoying to do in a dimension-generic way.
-        // try to do it if this ends up being used in a performance-critical place
-        let indices_chunked: Vec<&[usize]> = simplices
-            .indices
-            .chunks_exact(simplices.simplex_size)
-            .collect();
-
-        indices_chunked.binary_search(&indices).ok()
+        let index_map = simplices.index_map.get_or_init(|| {
+            simplices
+                .indices
+                .chunks_exact(simplices.simplex_size)
+                .enumerate()
+                .map(|(i, vert_is)| (Vec::from(vert_is), i))
+                .collect()
+        });
+        index_map.get(indices).copied()
     }
 
     /// Get an iterator over barycentric differentials of each `DIM`-simplex.
@@ -451,10 +450,6 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                 (0..indices.len() - 1).flat_map(|s| (s + 1..indices.len()).map(move |e| (s, e)))
             {
                 let edge_indices = [indices[start], indices[end]];
-                // there's room for optimization here;
-                // find_simplex_index runs a binary search every time.
-                // if this is a notable performance hit,
-                // try recursively going through boundary maps instead
                 let cochain_idx = self.find_simplex_index::<1>(&edge_indices).unwrap();
                 // the barycentric coordinates at the barycenter are all 1 / MESH_DIM.
                 // we'll multiply this into the value at the end
