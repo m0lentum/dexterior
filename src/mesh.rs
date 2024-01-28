@@ -109,8 +109,15 @@ impl<const DIM: usize> SimplexCollection<DIM> {
     }
 }
 
+/// A subset of cells in a mesh, e.g. its boundary.
+///
+/// Used to restrict operations to certain parts of the mesh,
+/// e.g. with [`ComposedOperator::exclude_subset`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SubsetRef<'a, Dimension, Primality> {
+    /// A bitset containing the indices of simplices present in the subset.
+    ///
+    /// Iterate over the indices with `self.indices.ones()`.
     pub indices: &'a fb::FixedBitSet,
     _marker: std::marker::PhantomData<(Dimension, Primality)>,
 }
@@ -141,6 +148,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         self.simplices[dim].len()
     }
 
+    /// Get a view into a simplex by its index in the data.
     #[inline]
     pub fn get_simplex_by_index<const DIM: usize>(
         &self,
@@ -154,6 +162,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
     }
 
+    /// Iterate over all `DIM`-dimensional simplices in the mesh.
     pub fn simplices<const DIM: usize>(&self) -> SimplexIter<'_, DIM, MESH_DIM> {
         SimplexIter {
             mesh: self,
@@ -298,7 +307,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
 
     /// Construct an exterior derivative operator.
     ///
-    /// See the [module-level docs][crate#operators] for usage information.
+    /// See the [crate-level docs][crate#operators] for usage information.
     pub fn d<const DIM: usize, Primality>(&self) -> crate::ExteriorDerivative<DIM, Primality>
     where
         na::Const<DIM>: na::DimNameAdd<na::U1>,
@@ -329,7 +338,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
 
     /// Construct a Hodge star operator.
     ///
-    /// See the [module-level docs][crate#operators] for usage information.
+    /// See the [crate-level docs][crate#operators] for usage information.
     pub fn star<const DIM: usize, Primality>(&self) -> crate::HodgeStar<DIM, MESH_DIM, Primality>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
@@ -515,10 +524,12 @@ impl MeshPrimality for Dual {
 // iterators and views
 //
 
-// note: these are extremely unfinished.
-// the eventual goal is to be able to access all the simplex information
-// (circumcenter, volume etc.) as well as boundaries and coboundaries through these views
-
+/// A view into a single simplex's data.
+///
+/// The data available via this interface is currently quite limited.
+/// Eventually it will be possible to navigate boundaries,
+/// volumes, etc. via these views and [`SimplexIter`],
+/// but these will be added as they become needed in practical applications.
 pub struct SimplexView<'a, const DIM: usize, const MESH_DIM: usize> {
     indices: &'a [usize],
     // view into all vertices of the mesh,
@@ -527,11 +538,13 @@ pub struct SimplexView<'a, const DIM: usize, const MESH_DIM: usize> {
 }
 
 impl<'a, const DIM: usize, const MESH_DIM: usize> SimplexView<'a, DIM, MESH_DIM> {
+    /// Iterate over the vertices of this simplex.
     pub fn vertices(&self) -> impl '_ + Iterator<Item = na::SVector<f64, MESH_DIM>> {
         self.indices.iter().map(|i| self.vertices[*i])
     }
 }
 
+/// Iterator over a set of `DIM`-simplices in a mesh.
 pub struct SimplexIter<'a, const DIM: usize, const MESH_DIM: usize> {
     mesh: &'a SimplicialMesh<MESH_DIM>,
     index: usize,

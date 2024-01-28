@@ -287,6 +287,8 @@ See the examples in the [repo] for usage.
 [pydec]: https://github.com/hirani/pydec/
 */
 
+#![warn(missing_docs)]
+
 pub mod mesh;
 #[doc(inline)]
 pub use mesh::{Dual, Primal, SimplexIter, SimplexView, SimplicialMesh};

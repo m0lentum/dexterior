@@ -6,12 +6,16 @@
 /// Error in loading a mesh from a Gmsh .msh file.
 #[derive(thiserror::Error, Debug)]
 pub enum GmshError {
-    // parser error converted to string
-    // to avoid lifetime issues with the byte slices it contains
+    /// Error parsing the .msh file.
+    ///
+    /// (Implementation note: parser error converted to string
+    /// to avoid lifetime issues with the byte slices it contains)
     #[error("Parsing the .msh data failed")]
     ParseError(String),
+    /// The given .msh file contains no nodes.
     #[error("Invalid .msh data: no nodes")]
     MissingNodes,
+    /// The given .msh file contains no elements of the supported type.
     #[error("Invalid .msh data: no elements of the correct type")]
     MissingElements,
 }

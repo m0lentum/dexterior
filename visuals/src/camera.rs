@@ -22,6 +22,8 @@ pub enum CameraControlMode {
     /// Move in a 2D plane, never rotate. Best for 2D.
     Planar2D,
     /// Rotate around a point. Best for 3D.
+    /// Currently not implemented.
+    #[allow(unused)]
     Spherical3D,
 }
 
