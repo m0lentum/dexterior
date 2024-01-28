@@ -24,6 +24,7 @@
             pkgs.lld
             pkgs.gmsh
             pkgs.renderdoc
+            pkgs.cargo-flamegraph
           ];
           # bunch of dynamically linked libs for gmsh and wgpu
           LD_LIBRARY_PATH = with pkgs.xorg; with pkgs.lib.strings;
