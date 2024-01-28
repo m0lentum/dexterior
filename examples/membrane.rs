@@ -1,5 +1,23 @@
 //! Example simulation of a vibrating membrane with fixed boundary.
-//! Acoustic wave equation, Dirichlet boundary `ɸ = 0`.
+//!
+//! The acoustic wave equation formulated for the velocity potential ɸ,
+//! ∂^2ɸ/∂t^2 - c^2 ∇^2 ɸ = 0,
+//! is split into a system of scalar pressure p and vector velocity v,
+//! ∂p/∂t - c^2 ∇·v = 0
+//! and ∂v/∂t - ∇p = 0.
+//! These are expressed in exterior calculus as
+//! ∂p/∂t - c^2 ★d★v = 0
+//! and ∂v/∂t - ★dp = 0
+//! where p is a 0-form and v as 1-form.
+//! p is expressed as a primal 0-cochain
+//! and v as a primal 1-cochain.
+//! Time discretization is performed with leapfrog integration.
+//! A Dirichlet condition `ɸ = 0` is imposed on the boundary.
+//!
+//! A more thorough explanation of the mathematical model
+//! can be found in the author's master's thesis,
+//! http://urn.fi/URN:NBN:fi:jyu-202310035379
+//! where this and other acoustics examples in this repo were originally created.
 
 use dexterior as dex;
 use dexterior_visuals as dv;
@@ -31,8 +49,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msh_bytes = include_bytes!("./meshes/2d_square_pi_x_pi.msh");
     let mesh = dex::gmsh::load_trimesh_2d(msh_bytes)?;
 
-    // TODO: pick dt based on minimum edge length
-    // (this requires an iterator with access to primal volumes)
     let dt = 1. / 10.;
     let wave_speed_sq = 1.0f64.powi(2);
 
@@ -45,6 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = State {
         // this is zero everywhere on the boundary of the [0, pi] x [0, pi] square
+        // (fulfilling the Dirichlet condition)
         // as long as the coefficients on v[0].x and v[0].y are integers
         p: mesh.integrate_cochain(|v| f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)),
         v: mesh.new_zero_cochain(),

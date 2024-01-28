@@ -1,9 +1,16 @@
 //! Example simulation of an acoustic plane wave
 //! ɸ = -cos(ωt - κ·x) propagating through space.
+//!
+//! The equations are the same as in `membrane.rs`,
+//! but instead of the 1-form velocity v we use the 1-form flux q = ★v.
+//! q is expressed as a primal 1-cochain, and p as a dual 0-cochain
+//! (this difference isn't actually needed here,
+//! but becomes relevant in flux-based absorbing boundary conditions).
+//!
 //! The wave is set on the boundary as a Dirichlet condition
 //! and simulated inside the domain.
 //! This can be used to measure the accuracy of the method,
-//! since the exact solution is known.
+//! since the exact solution ɸ is known.
 
 use dexterior as dex;
 use dexterior_visuals as dv;
