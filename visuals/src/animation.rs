@@ -8,7 +8,6 @@ use super::{color_map, pipelines::Painter};
 ///
 /// To display the animation in a window,
 /// use [`RenderWindow::run_animation`][crate::RenderWindow::run_animation].
-/// See the `dexterior` crate examples for usage.
 ///
 /// The `State` type must implement [`AnimationState`]
 /// to facilitate interpolated rendering.
@@ -22,7 +21,8 @@ use super::{color_map, pipelines::Painter};
 /// ```
 /// Note that `MyState` must still implement `Clone`.
 /// To enable interpolation, implement the `interpolate` member function
-/// and call [`lerp`][dexterior::Cochain::lerp] for each cochain in your state:
+/// and call [`lerp`][dexterior::Cochain::lerp] for each cochain in your state
+/// (and decide how/whether to interpolate anything else in your state that isn't a cochain):
 /// ```
 /// # use dexterior_visuals::AnimationState;
 /// use dexterior as dex;
@@ -40,7 +40,7 @@ use super::{color_map, pipelines::Painter};
 ///     }
 /// }
 /// ```
-/// This could be done with a macro, but it's a low-priority development,
+/// Note: this could be done with a macro, but it's a low-priority development,
 /// so for now you have to write this boilerplate by hand.
 pub struct Animation<'mesh, State, StepFn, DrawFn>
 where

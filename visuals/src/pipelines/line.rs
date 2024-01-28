@@ -7,7 +7,7 @@ use crate::render_window::RenderContext;
 // user-facing parameters
 //
 
-/// Parameters for rendering operations that draw lines.
+/// Parameters to configure the drawing of lines.
 #[derive(Clone, Copy, Debug)]
 pub struct LineParameters {
     /// Width of the line, either in pixels or in world units.
@@ -58,7 +58,6 @@ impl std::ops::Mul<f32> for LineWidth {
 }
 
 /// The shape to draw at the connection points between line segments in a line strip.
-/// Currently only circle joins or none at all are supported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JoinStyle {
     /// Draw a circle between each line segment.
@@ -73,19 +72,15 @@ pub enum JoinStyle {
 /// Styles for the start and end of a line segment or strip.
 #[derive(Clone, Copy, Debug)]
 pub struct CapsStyle {
+    /// Style for the start cap.
     pub start: CapStyle,
+    /// Style for the end cap.
     pub end: CapStyle,
 }
 
 impl CapsStyle {
-    pub fn none() -> Self {
-        Self {
-            start: CapStyle::None,
-            end: CapStyle::None,
-        }
-    }
-
     /// Create a cap style with the same shape at both ends.
+    #[inline]
     pub fn both(style: CapStyle) -> Self {
         Self {
             start: style,
@@ -93,7 +88,14 @@ impl CapsStyle {
         }
     }
 
+    /// Preset style with no caps.
+    #[inline]
+    pub fn none() -> Self {
+        Self::both(CapStyle::None)
+    }
+
     /// Preset style with an arrow cap at the end and a circle cap at the start.
+    #[inline]
     pub fn arrows() -> Self {
         Self {
             start: CapStyle::Circle,
@@ -105,8 +107,11 @@ impl CapsStyle {
 /// The shape to draw at the start or end of a line segment or strip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapStyle {
+    /// Circle-shaped cap.
     Circle,
+    /// Arrow-shaped cap.
     Arrow,
+    /// No cap.
     None,
 }
 

@@ -149,7 +149,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     /// Draw a primal 1-cochain representing a velocity in the edge tangent direction
     /// as arrows interpolated at triangle barycenters.
     pub fn velocity_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParameters) {
-        self._arrows(c, params, |v| v);
+        self.arrows(c, params, |v| v);
     }
 
     /// Draw a primal 1-cochain representing a flux in the edge normal direction
@@ -157,12 +157,12 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     pub fn flux_arrows(&mut self, c: &dex::Cochain<1, dex::Primal>, params: ArrowParameters) {
         // the interpolation works as if the cochain was integrated in the tangent direction;
         // the actual direction of flux is orthogonal to that
-        self._arrows(c, params, |v| na::Vector2::new(v.y, -v.x));
+        self.arrows(c, params, |v| na::Vector2::new(v.y, -v.x));
     }
 
-    /// Internal method to draw arrows potentially with a transformation applied;
-    /// an abstraction to reduce duplication between velocity and flux arrow methods.
-    fn _arrows(
+    /// Draw interpolated arrows potentially with a transformation applied.
+    /// An abstraction to reduce duplication between velocity and flux arrow methods.
+    fn arrows(
         &mut self,
         c: &dex::Cochain<1, dex::Primal>,
         params: ArrowParameters,
@@ -247,7 +247,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     }
 }
 
-/// Parameters to customize how [`Painter`] draws mesh wireframes.
+/// Parameters to configure the drawing of mesh wireframes.
 #[derive(Clone, Copy, Debug)]
 pub struct WireframeParameters {
     /// Width of the lines.
@@ -268,7 +268,7 @@ impl Default for WireframeParameters {
     }
 }
 
-/// Parameters to customize how [`Painter`] draws arrows.
+/// Parameters to configure the drawing of arrows.
 #[derive(Clone, Copy, Debug)]
 pub struct ArrowParameters {
     /// Coefficient to scale the arrow length by.
