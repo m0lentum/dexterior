@@ -8,40 +8,44 @@ pub(crate) mod axes;
 use axes::AxesParams;
 
 mod vertex_colors;
-use vertex_colors::VertexColorsPipeline;
+use vertex_colors::{VertexColorVariant, VertexColorsPipeline};
 
 //
 
-use itertools::{izip, Itertools};
+use itertools::izip;
 use nalgebra as na;
-use std::collections::HashMap;
+use std::{cell::OnceCell, collections::HashMap};
 
 use crate::render_window::{RenderContext, RenderWindow};
 use dexterior as dex;
 
 pub(crate) struct Renderer {
-    gradient_pl: VertexColorsPipeline,
+    // pipelines that aren't always used are created lazily on demand
+    gradient_pl: OnceCell<VertexColorsPipeline>,
+    flat_tri_pl: OnceCell<VertexColorsPipeline>,
     line_pl: LinePipeline,
     // some GPU resources are shared between different pipelines
     pub resources: SharedResources,
     // map from names to indices in the color map collection
     // for picking a map by name
     color_map_names: HashMap<String, usize>,
-    state: State,
+    state: RendererState,
 }
 
-struct State {
+pub(crate) struct RendererState {
+    /// Index of the active color map in the array of all available color maps.
     color_map_idx: usize,
+    /// Range of values mapped onto the color map.
     color_map_range: Option<std::ops::Range<f32>>,
+    /// Number of color-mapped draw calls made this frame.
+    /// Used to determine which storage buffer to use for the next call,
+    /// since we can't upload to the same one multiple times per frame.
+    next_color_data: usize,
 }
 
 impl Renderer {
-    pub fn new(
-        window: &RenderWindow,
-        mesh: &dex::SimplicialMesh<2>,
-        params: &crate::AnimationParams,
-    ) -> Self {
-        let resources = SharedResources::new(window, mesh, &params.color_maps);
+    pub fn new(window: &RenderWindow, params: &crate::AnimationParams) -> Self {
+        let resources = SharedResources::new(window, &params.color_maps);
 
         let color_map_names: HashMap<String, usize> = params
             .color_maps
@@ -61,13 +65,15 @@ impl Renderer {
         };
 
         Self {
-            gradient_pl: VertexColorsPipeline::new(window, mesh, &resources),
+            gradient_pl: OnceCell::new(),
+            flat_tri_pl: OnceCell::new(),
             line_pl: LinePipeline::new(window, &resources),
             resources,
             color_map_names,
-            state: State {
+            state: RendererState {
                 color_map_idx,
                 color_map_range: params.color_map_range.clone(),
+                next_color_data: 0,
             },
         }
     }
@@ -81,6 +87,7 @@ impl Renderer {
     /// to prepare for the next one.
     pub fn end_frame(&mut self) {
         self.line_pl.end_frame();
+        self.state.next_color_data = 0;
     }
 }
 
@@ -125,25 +132,58 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     /// Draw a primal 0-cochain by coloring mesh vertices
     /// according to the active color map and interpolating colors for the triangles between.
     pub fn vertex_colors(&mut self, c: &dex::Cochain<0, dex::Primal>) {
-        let vals_as_f32: Vec<f32> = c.values.iter().map(|&v| v as f32).collect();
+        self.draw_vertex_colors(c.values.as_slice());
+    }
 
-        let color_map_range = if let Some(r) = &self.rend.state.color_map_range {
-            r.clone()
-        } else {
-            use itertools::MinMaxResult::*;
-            match vals_as_f32.iter().minmax() {
-                NoElements | OneElement(_) => -1.0..1.0,
-                MinMax(&l, &u) => l..u,
-            }
-        };
+    /// Draw a dual 2-cochain by setting its values as colors
+    /// at the corresponding primal mesh vertices.
+    pub fn vertex_colors_dual(&mut self, c: &dex::Cochain<2, dex::Primal>) {
+        self.draw_vertex_colors(c.values.as_slice());
+    }
 
-        self.rend.resources.upload_data_buffer(
-            self.rend.state.color_map_idx,
-            color_map_range,
-            &vals_as_f32,
+    fn draw_vertex_colors(&mut self, values: &[f64]) {
+        let gradient_pl = self.rend.gradient_pl.get_or_init(|| {
+            VertexColorsPipeline::new(
+                self.ctx,
+                self.mesh,
+                &self.rend.resources,
+                VertexColorVariant::InterpolatedVertices,
+            )
+        });
+        gradient_pl.draw(
+            &mut self.rend.resources,
             self.ctx,
+            &mut self.rend.state,
+            values,
         );
-        self.rend.gradient_pl.draw(&self.rend.resources, self.ctx);
+    }
+
+    /// Draw a primal 2-cochain as flat-colored triangles.
+    pub fn triangle_colors(&mut self, c: &dex::Cochain<2, dex::Primal>) {
+        self.draw_triangle_colors(c.values.as_slice());
+    }
+
+    /// Draw a dual 0-cochain as flat colors
+    /// on the corresponding primal mesh triangles.
+    pub fn triangle_colors_dual(&mut self, c: &dex::Cochain<0, dex::Dual>) {
+        self.draw_triangle_colors(c.values.as_slice());
+    }
+
+    fn draw_triangle_colors(&mut self, values: &[f64]) {
+        let tri_pl = self.rend.flat_tri_pl.get_or_init(|| {
+            VertexColorsPipeline::new(
+                self.ctx,
+                self.mesh,
+                &self.rend.resources,
+                VertexColorVariant::FlatTriangles,
+            )
+        });
+        tri_pl.draw(
+            &mut self.rend.resources,
+            self.ctx,
+            &mut self.rend.state,
+            values,
+        );
     }
 
     /// Draw a primal 1-cochain representing a velocity in the edge tangent direction

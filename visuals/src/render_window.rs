@@ -223,6 +223,8 @@ impl RenderWindow {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
+        let multisample_state = self.multisample_state();
+
         RenderContext {
             clear_color: Some(wgpu::Color::WHITE),
             surface_tex,
@@ -232,6 +234,8 @@ impl RenderWindow {
             device: &self.device,
             queue: &mut self.queue,
             viewport_size: (self.surface_config.width, self.surface_config.height),
+            target_format: self.swapchain_format,
+            multisample_state,
         }
     }
 
@@ -249,7 +253,7 @@ impl RenderWindow {
         StepFn: FnMut(&mut State),
         DrawFn: FnMut(&State, &mut crate::Painter),
     {
-        let mut renderer = pl::Renderer::new(self, anim.mesh, &anim.params);
+        let mut renderer = pl::Renderer::new(self, &anim.params);
 
         // get the (x, y) bounds of the mesh to construct a camera
         // with a fitting viewport
@@ -360,6 +364,8 @@ pub(crate) struct RenderContext<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a mut wgpu::Queue,
     pub viewport_size: (u32, u32),
+    pub target_format: wgpu::TextureFormat,
+    pub multisample_state: wgpu::MultisampleState,
 }
 
 impl<'a> RenderContext<'a> {

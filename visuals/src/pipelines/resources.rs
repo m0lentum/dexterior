@@ -1,4 +1,3 @@
-use bytemuck::{Pod, Zeroable};
 use std::mem::size_of;
 
 use nalgebra as na;
@@ -12,38 +11,23 @@ use crate::{
 /// GPU resources (buffers, bind groups)
 /// that are shared between multiple render pipelines.
 pub(crate) struct SharedResources {
-    /// Storage buffer (not vertex buffer!) for vertices, used for vertex pulling.
-    pub vertex_buf: wgpu::Buffer,
     pub camera_uniform_buf: wgpu::Buffer,
     /// Single array texture containing all registered colormaps.
     /// These don't need to accessed, but also aren't allowed to be dropped,
     /// hence the underscores.
-    pub _colormap_texture: wgpu::Texture,
-    pub _colormap_view: wgpu::TextureView,
-    pub _colormap_sampler: wgpu::Sampler,
+    _colormap_texture: wgpu::Texture,
+    _colormap_view: wgpu::TextureView,
+    _colormap_sampler: wgpu::Sampler,
     /// Bind group for things that are constant for a frame
     /// (camera, colormap textures).
     pub frame_bind_group: wgpu::BindGroup,
     pub frame_bind_group_layout: wgpu::BindGroupLayout,
-    /// Buffer and bind group for a generic vector of data
-    /// (at the time of writing, always a cochain)
-    /// and color mapping parameters.
-    pub data: DynamicDataBuffer,
-}
-
-/// Position of a vertex for the vertex buffer.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct Position {
-    pos: [f32; 3],
-}
-
-impl From<na::Vector2<f64>> for Position {
-    fn from(v: na::Vector2<f64>) -> Self {
-        Self {
-            pos: [v.x as f32, v.y as f32, 0.0],
-        }
-    }
+    /// Buffers and bind groups for color mapping parameters and data.
+    /// In a Vec because each draw call in a frame needs its own buffer
+    /// to avoid overwriting others.
+    /// The state determining which buffer to use lives in [`super::RendererState`].
+    pub color_data: Vec<DynamicDataBuffer>,
+    pub color_data_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 /// Uniform buffer for the camera.
@@ -63,33 +47,22 @@ struct DataStorage<'a> {
     color_map_range_start: f32,
     color_map_range_length: f32,
     #[size(runtime)]
-    data: &'a [f32],
+    values: &'a [f32],
 }
 
 /// A storage buffer for computed data that is automatically resized on write when necessary.
 pub struct DynamicDataBuffer {
     pub cpu_storage: encase::StorageBuffer<Vec<u8>>,
-    pub bind_group_layout: wgpu::BindGroupLayout,
-    pub buf_and_bg: Option<(wgpu::Buffer, wgpu::BindGroup)>,
+    pub buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
     pub len: usize,
 }
 
 impl SharedResources {
-    pub fn new(
-        window: &crate::RenderWindow,
-        mesh: &dexterior::SimplicialMesh<2>,
-        colormaps: &[ColorMap],
-    ) -> Self {
-        let vertices: Vec<Position> = mesh.vertices.iter().cloned().map(Position::from).collect();
-
-        use wgpu::util::DeviceExt;
-        let vertex_buf = window
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mesh vertices"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+    pub fn new(window: &crate::RenderWindow, colormaps: &[ColorMap]) -> Self {
+        //
+        // camera
+        //
 
         let camera_uniform_buf_size = <CameraUniforms as encase::ShaderType>::min_size();
         let camera_uniform_buf = window.device.create_buffer(&wgpu::BufferDescriptor {
@@ -220,14 +193,14 @@ impl SharedResources {
         });
 
         //
-        // data bind group
+        // color data bind group
         //
 
-        let data_bind_group_layout =
+        let color_data_bind_group_layout =
             window
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("data"),
+                    label: Some("color data"),
                     entries: &[wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
@@ -240,37 +213,16 @@ impl SharedResources {
                         count: None,
                     }],
                 });
-        let data = DynamicDataBuffer {
-            cpu_storage: encase::StorageBuffer::new(Vec::new()),
-            bind_group_layout: data_bind_group_layout,
-            buf_and_bg: None,
-            len: 0,
-        };
 
         Self {
-            vertex_buf,
             camera_uniform_buf,
             _colormap_texture: colormap_texture,
             _colormap_view: colormap_view,
             _colormap_sampler: colormap_sampler,
             frame_bind_group_layout,
             frame_bind_group,
-            data,
-        }
-    }
-
-    pub fn vertex_buf_layout<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: size_of::<Position>() as _,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                // position
-                wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Float32x3,
-                    offset: 0,
-                    shader_location: 0,
-                },
-            ],
+            color_data: Vec::new(),
+            color_data_bind_group_layout,
         }
     }
 
@@ -286,52 +238,99 @@ impl SharedResources {
             .write_buffer(&self.camera_uniform_buf, 0, &uniform_bytes.into_inner());
     }
 
-    pub fn upload_data_buffer(
+    /// Send color mapping data to the GPU.
+    pub fn upload_color_data(
         &mut self,
-        color_map_idx: usize,
-        color_map_range: std::ops::Range<f32>,
-        data: &[f32],
         ctx: &mut RenderContext,
+        state: &mut super::RendererState,
+        values: &[f64],
     ) {
-        assert!(!data.is_empty(), "Data must have at least one element");
+        assert!(!values.is_empty(), "Data must have at least one element");
 
-        self.data.cpu_storage.as_mut().clear();
-        self.data
-            .cpu_storage
-            .write(&DataStorage {
-                color_map_idx: color_map_idx as u32,
-                color_map_range_start: color_map_range.start,
-                color_map_range_length: color_map_range.end - color_map_range.start,
-                data,
-            })
-            .expect("Failed to write data");
+        // convert values to f32 (given as f64 because simulation variables are f64)
+        let values: Vec<f32> = values.iter().map(|&v| v as f32).collect();
 
-        if data.len() > self.data.len || self.data.buf_and_bg.is_none() {
-            // allocate a bigger buffer and create a new bind group
+        // compute color map range from the data if it hasn't been given as a parameter
+        let color_map_range = if let Some(r) = &state.color_map_range {
+            r.clone()
+        } else {
+            use itertools::{Itertools, MinMaxResult::*};
+            match values.iter().minmax() {
+                NoElements | OneElement(_) => -1.0..1.0,
+                MinMax(&l, &u) => l..u,
+            }
+        };
+
+        let gpu_data = DataStorage {
+            color_map_idx: state.color_map_idx as u32,
+            color_map_range_start: color_map_range.start,
+            color_map_range_length: color_map_range.end - color_map_range.start,
+            values: &values,
+        };
+
+        // method to create a new storage buffer if necessary
+        // (either making a new one or old doesn't have enough space)
+        let reallocate = |contents: &[u8]| -> (wgpu::Buffer, wgpu::BindGroup) {
             use wgpu::util::DeviceExt;
-            let buf = ctx
+            let buffer = ctx
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("data"),
+                    label: Some("color data"),
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                    contents: self.data.cpu_storage.as_ref(),
+                    contents,
                 });
             let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("data"),
-                layout: &self.data.bind_group_layout,
+                label: Some("color data"),
+                layout: &self.color_data_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer(buf.as_entire_buffer_binding()),
+                    resource: wgpu::BindingResource::Buffer(buffer.as_entire_buffer_binding()),
                 }],
             });
+            (buffer, bind_group)
+        };
 
-            self.data.buf_and_bg = Some((buf, bind_group));
-            self.data.len = data.len();
+        if state.next_color_data >= self.color_data.len() {
+            // more draw calls in a frame than have been made before, create a new buffer
+
+            let mut cpu_storage = encase::StorageBuffer::new(Vec::new());
+            cpu_storage.write(&gpu_data).unwrap();
+            let (buffer, bind_group) = reallocate(cpu_storage.as_ref());
+            self.color_data.push(DynamicDataBuffer {
+                cpu_storage,
+                buffer,
+                bind_group,
+                len: 0,
+            });
         } else {
-            // the previous condition made sure these exist
-            let (buf, _) = self.data.buf_and_bg.as_ref().unwrap();
-            ctx.queue
-                .write_buffer(buf, 0, self.data.cpu_storage.as_ref());
+            // reusing an existing buffer, resizing if necessary
+
+            let color_data = &mut self.color_data[state.next_color_data];
+
+            color_data.cpu_storage.as_mut().clear();
+            color_data.cpu_storage.write(&gpu_data).unwrap();
+
+            if values.len() > color_data.len {
+                // allocate a bigger buffer and create a new bind group
+
+                let (buffer, bind_group) = reallocate(color_data.cpu_storage.as_ref());
+                color_data.buffer = buffer;
+                color_data.bind_group = bind_group;
+                color_data.len = values.len();
+            } else {
+                ctx.queue
+                    .write_buffer(&color_data.buffer, 0, color_data.cpu_storage.as_ref());
+            }
         }
+
+        state.next_color_data += 1;
+    }
+
+    /// Get the bind group for the last uploaded color data.
+    ///
+    /// This will panic if no data has been uploaded.
+    #[inline]
+    pub fn latest_color_bind_group(&self, state: &super::RendererState) -> &wgpu::BindGroup {
+        &self.color_data[state.next_color_data - 1].bind_group
     }
 }

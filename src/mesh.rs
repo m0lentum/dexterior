@@ -162,6 +162,12 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
     }
 
+    /// Get a slice of all vertices in the mesh.
+    #[inline]
+    pub fn vertices(&self) -> &[na::SVector<f64, MESH_DIM>] {
+        &self.vertices
+    }
+
     /// Iterate over all `DIM`-dimensional simplices in the mesh.
     pub fn simplices<const DIM: usize>(&self) -> SimplexIter<'_, DIM, MESH_DIM> {
         SimplexIter {

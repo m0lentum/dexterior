@@ -84,7 +84,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut window = dv::RenderWindow::new(dv::WindowParams::default())?;
     window.run_animation(dv::Animation {
         mesh: &mesh,
-        params: dv::AnimationParams::default(),
+        params: dv::AnimationParams {
+            color_map_range: Some(-2.0..2.0),
+            ..Default::default()
+        },
         dt,
         state,
         step: |state| {
@@ -102,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.p += &ops.p_step * &state.q;
         },
         draw: |state, draw| {
-            // TODO: draw pressure as solid colored triangles
+            draw.triangle_colors_dual(&state.p);
             draw.wireframe(dv::WireframeParams::default());
             draw.flux_arrows(&state.q, dv::ArrowParams::default());
             draw.axes_2d(dv::AxesParams::default());
