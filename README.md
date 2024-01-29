@@ -11,7 +11,8 @@ and type inference opportunities as possible
 to produce concise and correct code.
 
 A companion crate, `dexterior-visuals`, provides some batteries-included tools
-to visualize simulations implemented with `dexterior` in real time.
+to visualize simulations implemented with `dexterior` in real time
+using [`wgpu`][wgpu].
 
 ## Current state
 
@@ -22,7 +23,8 @@ implementing most of [PyDEC]'s functionality relevant to PDEs,
 but it hasn't been tested with many cases yet.
 Some known rough edges remain.
 The visuals crate is quite limited at the moment,
-supporting only a few specific 2D use cases.
+supporting only a handful of 2D use cases,
+but built with an eventual extension to 3D in mind.
 
 ## Example
 
@@ -62,6 +64,13 @@ for _step in 0..10 {
     v += &v_step * &p;
 }
 ```
+
+A more complete version of this with visuals is in [`examples/membrane.rs`](examples/membrane.rs).
+If you run it, it should look like this (but animated):
+
+![Simulation of a standing wave in a vibrating membrane
+with colors representing pressure
+and arrows pointing in the direction of velocity.](membrane.jpg)
 
 ## References and recommended reading
 
@@ -108,3 +117,4 @@ without any additional terms or conditions.
 
 [repo]: https://github.com/m0lentum/dexterior
 [pydec]: https://github.com/hirani/pydec/
+[wgpu]: https://wgpu.rs/
