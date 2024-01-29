@@ -32,6 +32,9 @@ pub(crate) struct Renderer {
     state: RendererState,
 }
 
+/// Any state that varies during a frame should be here if possible
+/// (not inside one of the pipeline modules),
+/// especially if it needs to be reset between frames.
 pub(crate) struct RendererState {
     /// Index of the active color map in the array of all available color maps.
     color_map_idx: usize,
@@ -41,6 +44,9 @@ pub(crate) struct RendererState {
     /// Used to determine which storage buffer to use for the next call,
     /// since we can't upload to the same one multiple times per frame.
     next_color_data: usize,
+    /// Same for the line renderer,
+    /// which builds a storage buffer per call during a frame.
+    next_line_data: usize,
 }
 
 impl Renderer {
@@ -74,6 +80,7 @@ impl Renderer {
                 color_map_idx,
                 color_map_range: params.color_map_range.clone(),
                 next_color_data: 0,
+                next_line_data: 0,
             },
         }
     }
@@ -86,8 +93,8 @@ impl Renderer {
     /// Reset any state accumulated within a frame
     /// to prepare for the next one.
     pub fn end_frame(&mut self) {
-        self.line_pl.end_frame();
         self.state.next_color_data = 0;
+        self.state.next_line_data = 0;
     }
 }
 
@@ -276,9 +283,14 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
             .iter()
             .map(|p| [p.x as f32, p.y as f32, p.z as f32])
             .collect();
-        self.rend
-            .line_pl
-            .draw(&self.rend.resources, self.ctx, params, mode, &points);
+        self.rend.line_pl.draw(
+            &self.rend.resources,
+            &mut self.rend.state,
+            self.ctx,
+            params,
+            mode,
+            &points,
+        );
     }
 }
 

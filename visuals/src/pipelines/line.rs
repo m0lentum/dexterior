@@ -161,9 +161,6 @@ pub(crate) struct LinePipeline {
     // without submitting commands for buffer writes between each draw
     instance_bufs: Vec<DynamicInstanceBuffer>,
     params_bind_group_layout: wgpu::BindGroupLayout,
-    // keep track of how many draw calls have been made this frame
-    // to decide which instance buffer to use
-    next_draw_index: usize,
 }
 
 /// A collection of all the pipelines with different step modes and shaders.
@@ -451,7 +448,6 @@ impl LinePipeline {
             primitives: Primitives::generate_instance_geometry(&window.device),
             instance_bufs: Vec::new(),
             params_bind_group_layout,
-            next_draw_index: 0,
         }
     }
 
@@ -459,6 +455,7 @@ impl LinePipeline {
     /// returning the buffer that was written to.
     fn upload_draw_data(
         &mut self,
+        state: &mut super::RendererState,
         ctx: &mut RenderContext,
         params: ParamUniforms,
         points: &[[f32; 3]],
@@ -466,7 +463,7 @@ impl LinePipeline {
         let mut params_bytes = encase::UniformBuffer::new(Vec::new());
         params_bytes.write(&params).unwrap();
 
-        if self.next_draw_index >= self.instance_bufs.len() {
+        if state.next_line_data >= self.instance_bufs.len() {
             // this is more than we've drawn in a frame before,
             // add another instance buffer
             self.instance_bufs.push(DynamicInstanceBuffer::write_new(
@@ -476,7 +473,7 @@ impl LinePipeline {
                 bytemuck::cast_slice(points),
             ));
         } else {
-            self.instance_bufs[self.next_draw_index].write(
+            self.instance_bufs[state.next_line_data].write(
                 ctx,
                 &params_bytes.into_inner(),
                 bytemuck::cast_slice(points),
@@ -484,14 +481,10 @@ impl LinePipeline {
         }
     }
 
-    /// Reset internal state between frames.
-    pub fn end_frame(&mut self) {
-        self.next_draw_index = 0;
-    }
-
     pub fn draw(
         &mut self,
         res: &super::SharedResources,
+        state: &mut super::RendererState,
         ctx: &mut RenderContext,
         params: LineParams,
         mode: LineDrawingMode,
@@ -510,9 +503,9 @@ impl LinePipeline {
             },
             color: na::Vector4::new(params.color.red, params.color.green, params.color.blue, 1.0),
         };
-        self.upload_draw_data(ctx, params_unif, points);
+        self.upload_draw_data(state, ctx, params_unif, points);
 
-        let instance = &self.instance_bufs[self.next_draw_index];
+        let instance = &self.instance_bufs[state.next_line_data];
 
         // setup a render pass
 
@@ -621,7 +614,7 @@ impl LinePipeline {
             }
         }
 
-        self.next_draw_index += 1;
+        state.next_line_data += 1;
     }
 }
 

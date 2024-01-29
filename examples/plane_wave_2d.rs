@@ -107,7 +107,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         draw: |state, draw| {
             draw.triangle_colors_dual(&state.p);
             draw.wireframe(dv::WireframeParams::default());
-            draw.flux_arrows(&state.q, dv::ArrowParams::default());
+            draw.flux_arrows(
+                &state.q,
+                dv::ArrowParams {
+                    scaling: dv::ArrowParams::default().scaling / 2.,
+                    ..Default::default()
+                },
+            );
             draw.axes_2d(dv::AxesParams::default());
         },
     });

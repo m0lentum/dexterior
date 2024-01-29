@@ -42,6 +42,7 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParams) {
     let mut draw = |line_params: LineParams, points: &[[f32; 3]]| {
         painter.rend.line_pl.draw(
             &painter.rend.resources,
+            &mut painter.rend.state,
             painter.ctx,
             line_params,
             LineDrawingMode::List,
