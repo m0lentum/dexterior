@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use crate::render_window::RenderContext;
+use dexterior_core as dex;
 
 /// there are two variants of this pipeline,
 /// one for drawing 0-cochains as vertex colors
@@ -20,7 +21,7 @@ pub(crate) struct VertexColorsPipeline {
 impl VertexColorsPipeline {
     pub fn new(
         ctx: &super::RenderContext,
-        mesh: &dexterior::SimplicialMesh<2>,
+        mesh: &dex::SimplicialMesh<2>,
         res: &super::SharedResources,
         variant: VertexColorVariant,
     ) -> Self {

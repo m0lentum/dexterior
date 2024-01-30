@@ -20,7 +20,7 @@
 //! where this and other acoustics examples in this repo were originally created.
 
 use dexterior as dex;
-use dexterior_visuals as dv;
+use dex::visuals as dv;
 
 type Pressure = dex::Cochain<0, dex::Primal>;
 type Velocity = dex::Cochain<1, dex::Primal>;

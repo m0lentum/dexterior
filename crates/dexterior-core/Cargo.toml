@@ -1,0 +1,19 @@
+[package]
+name = "dexterior-core"
+version = "0.1.0"
+description = "Core crate of dexterior, a Discrete Exterior Calculus toolkit"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+itertools.workspace = true
+nalgebra.workspace = true
+nalgebra-sparse.workspace = true
+thiserror.workspace = true
+fixedbitset = "0.4.2"
+mshio = "0.4.2"
+
+[dev-dependencies]
+approx = "0.5.1"

@@ -53,7 +53,8 @@ impl Default for WindowParams {
 /// A window for drawing real-time graphics.
 ///
 /// See [`run_animation`][Self::run_animation], [`Animation`][crate::Animation],
-/// and the [`dexterior`] examples for how to draw into the window once created.
+/// and the examples in the [dexterior repo](https://github.com/m0lentum/dexterior)
+/// for how to draw into the window once created.
 pub struct RenderWindow {
     // window needs to be kept around for it to not close,
     // but doesn't need to be accessed

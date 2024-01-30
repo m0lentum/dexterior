@@ -13,7 +13,7 @@
 //! since the exact solution ɸ is known.
 
 use dexterior as dex;
-use dexterior_visuals as dv;
+use dex::visuals as dv;
 use nalgebra as na;
 
 type Pressure = dex::Cochain<0, dex::Dual>;

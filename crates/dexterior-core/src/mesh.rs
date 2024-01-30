@@ -112,7 +112,8 @@ impl<const DIM: usize> SimplexCollection<DIM> {
 /// A subset of cells in a mesh, e.g. its boundary.
 ///
 /// Used to restrict operations to certain parts of the mesh,
-/// e.g. with [`ComposedOperator::exclude_subset`].
+/// e.g. with [`ComposedOperator::exclude_subset`
+/// ][crate::operator::ComposedOperator::exclude_subset].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SubsetRef<'a, Dimension, Primality> {
     /// A bitset containing the indices of simplices present in the subset.

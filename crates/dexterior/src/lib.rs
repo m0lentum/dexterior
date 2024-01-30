@@ -9,8 +9,11 @@ An effort is made to provide as many compile-time checks
 and type inference opportunities as possible
 to produce concise and correct code.
 
-A companion crate, `dexterior-visuals`, provides some batteries-included tools
-to visualize simulations implemented with `dexterior` in real time.
+Additionally, `dexterior` provides some batteries-included tools
+for real-time visualization with [wgpu] in the optional `visuals` module.
+Enable the `visuals` feature to use them.
+These are less mature than the core library,
+currently only supporting 2D use cases.
 
 # Example
 
@@ -269,20 +272,12 @@ See the examples in the [repo] for usage.
 
 [repo]: https://github.com/m0lentum/dexterior
 [pydec]: https://github.com/hirani/pydec/
+[wgpu]: https://wgpu.rs
 */
 
-#![warn(missing_docs)]
-
-pub mod mesh;
 #[doc(inline)]
-pub use mesh::{Dual, Primal, SimplexIter, SimplexView, SimplicialMesh};
+pub use dexterior_core::*;
 
-pub mod cochain;
-#[doc(inline)]
-pub use cochain::Cochain;
+#[cfg(feature = "visuals")]
+pub use dexterior_visuals as visuals;
 
-pub mod operator;
-#[doc(inline)]
-pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Op, Operator};
-
-pub mod gmsh;

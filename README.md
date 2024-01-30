@@ -10,9 +10,8 @@ An effort is made to provide as many compile-time checks
 and type inference opportunities as possible
 to produce concise and correct code.
 
-A companion crate, `dexterior-visuals`, provides some batteries-included tools
-to visualize simulations implemented with `dexterior` in real time
-using [`wgpu`][wgpu].
+Additionally, `dexterior` provides some batteries-included tools
+for real-time visualization with [wgpu] in the optional `visuals` module.
 
 ## Current state
 
@@ -65,12 +64,21 @@ for _step in 0..10 {
 }
 ```
 
-A more complete version of this with visuals is in [`examples/membrane.rs`](examples/membrane.rs).
+A more complete version of this with visuals is in 
+[`crates/dexterior/examples/membrane.rs`](crates/dexterior/examples/membrane.rs).
 If you run it, it should look like this (but animated):
 
 ![Simulation of a standing wave in a vibrating membrane
 with colors representing pressure
 and arrows pointing in the direction of velocity.](membrane.jpg)
+
+Note that the examples require the `visuals` feature,
+which isn't on by default, so you'll need to enable it with a flag:
+```sh
+cargo run --features visuals --example membrane
+# or:
+cargo run --all-features --example membrane
+```
 
 ## References and recommended reading
 

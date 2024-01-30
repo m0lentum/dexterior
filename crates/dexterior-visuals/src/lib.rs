@@ -1,4 +1,4 @@
-//! Real-time visualization for simulations implemented with [`dexterior`].
+//! Real-time visualization for simulations implemented with `dexterior`.
 //!
 //! This crate is in an early state of development,
 //! currently only supporting a handful of 2D use cases.

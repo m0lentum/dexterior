@@ -1,0 +1,31 @@
+[package]
+name = "dexterior"
+version = "0.1.0"
+description = "Discrete Exterior Calculus toolkit"
+keywords = ["dec", "differential-equations"]
+categories = ["mathematics", "science"]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dexterior-core = { path = "../dexterior-core", version = "0.1.0" }
+dexterior-visuals = { path = "../dexterior-visuals", version = "0.1.0", optional = true }
+nalgebra.workspace = true
+
+[features]
+default = []
+visuals = ["dexterior-visuals"]
+
+# each example with visuals needs to have an entry here
+# in order to be able to run unit tests from the main workspace directory
+# (otherwise we'll get compilation errors
+# because the visuals feature isn't on by default,
+# as well as worse error messages when trying to run the examples)
+[[example]]
+name = "membrane"
+required-features = ["visuals"]
+[[example]]
+name = "plane_wave_2d"
+required-features = ["visuals"]

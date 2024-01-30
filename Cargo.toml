@@ -1,5 +1,7 @@
 [workspace]
-members = ["visuals"]
+members = ["crates/*"]
+default-members = ["crates/*"]
+resolver = "2"
 
 [workspace.package]
 authors = ["Mikael Myyrä <mikael.b.myyra@jyu.fi>"]
@@ -12,26 +14,3 @@ itertools = "0.11.0"
 nalgebra = "0.32.3"
 nalgebra-sparse = "0.9.0"
 thiserror = "1.0.50"
-
-[package]
-name = "dexterior"
-version = "0.1.0"
-description = "Discrete Exterior Calculus toolkit"
-keywords = ["dec", "differential-equations"]
-categories = ["mathematics", "science"]
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
-repository.workspace = true
-
-[dependencies]
-itertools.workspace = true
-nalgebra.workspace = true
-nalgebra-sparse.workspace = true
-thiserror.workspace = true
-fixedbitset = "0.4.2"
-mshio = "0.4.2"
-
-[dev-dependencies]
-approx = "0.5.1"
-dexterior-visuals.path = "./visuals"

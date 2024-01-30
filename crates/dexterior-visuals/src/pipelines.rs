@@ -17,7 +17,7 @@ use nalgebra as na;
 use std::{cell::OnceCell, collections::HashMap};
 
 use crate::render_window::{RenderContext, RenderWindow};
-use dexterior as dex;
+use dexterior_core as dex;
 
 pub(crate) struct Renderer {
     // pipelines that aren't always used are created lazily on demand

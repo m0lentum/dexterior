@@ -27,9 +27,10 @@ pub enum GmshError {
 /// The `z` coordinate of vertices is dropped to project the mesh to 2D space.
 ///
 /// ```
-/// # use dexterior::gmsh::{load_trimesh_2d, GmshError};
+/// # use dexterior_core::gmsh::{load_trimesh_2d, GmshError};
 /// # fn load() -> Result<(), Box<dyn std::error::Error>> {
-/// let msh_bytes = std::fs::read("examples/meshes/2d_square_pi_x_pi.msh")?;
+/// # let msh_path = "../dexterior/examples/meshes/2d_square_pi_x_pi.msh";
+/// let msh_bytes = std::fs::read(msh_path)?;
 /// let mesh = load_trimesh_2d(&msh_bytes)?;
 /// # Ok(())
 /// # }

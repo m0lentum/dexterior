@@ -192,7 +192,7 @@ impl<const DIM: usize, const MESH_DIM: usize, Primality> PartialEq
 ///
 /// Operator composition can be done using multiplication syntax:
 /// ```
-/// # use dexterior::{Primal, ComposedOperator, mesh::tiny_mesh_2d};
+/// # use dexterior_core::{Primal, ComposedOperator, mesh::tiny_mesh_2d};
 /// # let mesh = tiny_mesh_2d();
 /// let op: ComposedOperator<_, _> = mesh.star() * mesh.d::<1, Primal>();
 /// ```
@@ -298,7 +298,7 @@ where
 ///
 /// This can also be done with multiplication syntax:
 /// ```
-/// # use dexterior::{Primal, operator::compose, mesh::tiny_mesh_2d};
+/// # use dexterior_core::{Primal, operator::compose, mesh::tiny_mesh_2d};
 /// # let mesh = tiny_mesh_2d();
 /// assert_eq!(
 ///     compose(mesh.star::<2, Primal>(), mesh.d::<1, Primal>()),

@@ -1,6 +1,6 @@
 //! Parameters for animated visuals.
 
-use dexterior as dex;
+use dexterior_core as dex;
 
 use super::{color_map, pipelines::Painter};
 
@@ -21,10 +21,11 @@ use super::{color_map, pipelines::Painter};
 /// ```
 /// Note that `MyState` must still implement `Clone`.
 /// To enable interpolation, implement the `interpolate` member function
-/// and call [`lerp`][dexterior::Cochain::lerp] for each cochain in your state
+/// and call [`lerp`][dexterior_core::Cochain::lerp] for each cochain in your state
 /// (and decide how/whether to interpolate anything else in your state that isn't a cochain):
 /// ```
 /// # use dexterior_visuals::AnimationState;
+/// # use dexterior_core as dexterior;
 /// use dexterior as dex;
 /// #[derive(Clone)]
 /// struct MyState {
