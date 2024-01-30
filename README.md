@@ -1,5 +1,8 @@
 # dexterior
 
+[![Documentation](https://docs.rs/dexterior/badge.svg)](https://docs.rs/dexterior/)
+[![Crates.io](https://img.shields.io/crates/v/dexterior.svg)](https://crates.io/crates/dexterior)
+
 `dexterior` provides building blocks
 for the discretization of partial differential equations
 using the mathematical framework of Discrete Exterior Calculus (DEC).
