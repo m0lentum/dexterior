@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Discrete Exterior Calculus toolkit"
 keywords = ["dec", "simulation"]
 categories = ["mathematics", "science"]
+readme = "../../README.md"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
