@@ -2,7 +2,7 @@
 name = "dexterior"
 version = "0.1.0"
 description = "Discrete Exterior Calculus toolkit"
-keywords = ["dec", "differential-equations"]
+keywords = ["dec", "simulation"]
 categories = ["mathematics", "science"]
 authors.workspace = true
 edition.workspace = true
