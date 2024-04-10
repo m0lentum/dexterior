@@ -148,8 +148,8 @@ pub enum LineDrawingMode {
 
 /// A versatile instanced line renderer.
 ///
-/// Based on [this blog post by Rye Terrell].
-/// (https://wwwtyro.net/2019/11/18/instanced-lines.html)
+/// Based on [this blog post by Rye Terrell]
+/// (https://wwwtyro.net/2019/11/18/instanced-lines.html).
 pub(crate) struct LinePipeline {
     // pipelines for different instance step modes and shaders
     pipelines: Pipelines,
