@@ -19,8 +19,8 @@
 //! http://urn.fi/URN:NBN:fi:jyu-202310035379
 //! where this and other acoustics examples in this repo were originally created.
 
-use dexterior as dex;
 use dex::visuals as dv;
+use dexterior as dex;
 
 type Pressure = dex::Cochain<0, dex::Primal>;
 type Velocity = dex::Cochain<1, dex::Primal>;
@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             draw.velocity_arrows(&state.v, dv::ArrowParams::default());
             draw.axes_2d(dv::AxesParams::default());
         },
-    });
+    })?;
 
     Ok(())
 }

@@ -1,8 +1,7 @@
 //! Parameters for animated visuals.
 
-use dexterior_core as dex;
-
 use super::{color_map, pipelines::Painter};
+use dexterior_core as dex;
 
 /// An animated visualization of simulation data.
 ///

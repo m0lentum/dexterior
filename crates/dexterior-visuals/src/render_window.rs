@@ -1,7 +1,9 @@
 //! Low-level resources for window creation and rendering.
 
-use std::time::Instant;
+use web_time::Instant;
 
+#[cfg(target_arch = "wasm32")]
+use winit::event_loop::EventLoopProxy;
 use winit::{
     event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
@@ -12,35 +14,6 @@ use winit::{
 use nalgebra as na;
 
 use super::{camera::Camera, pipelines as pl};
-
-/// An error that occurred when creating a [`RenderWindow`].
-///
-/// Unfortunately with the current winit version
-/// the window has to be created in a trait method from which
-/// this can't be propagated to the user, hence why it's private now
-/// (still used internally to make use of the `?` operator).
-#[derive(thiserror::Error, Debug)]
-#[allow(clippy::enum_variant_names)]
-enum WindowInitError {
-    /// Failed to create [`winit`] event loop.
-    #[error("Failed to create winit event loop")]
-    EventLoopError(#[from] winit::error::EventLoopError),
-    /// Failed to create the [`winit`] window.
-    #[error("Failed to create winit window")]
-    WindowOsError(#[from] winit::error::OsError),
-    /// Failed to get a window handle.
-    #[error("Failed to get a window handle")]
-    HandleError,
-    /// Failed to create a [`wgpu::Surface`] for the window.
-    #[error("Failed to create wgpu surface")]
-    CreateSurfaceError(#[from] wgpu::CreateSurfaceError),
-    /// Failed to get a [`wgpu::Adapter`].
-    #[error("Failed to get wgpu adapter")]
-    CreateAdapterError,
-    /// Failed to get a [`wgpu::Device`].
-    #[error("Failed to get wgpu device")]
-    RequestDeviceError(#[from] wgpu::RequestDeviceError),
-}
 
 //
 // user-facing API
@@ -67,6 +40,15 @@ impl Default for WindowParams {
     }
 }
 
+/// Running on wasm requires wrangling wgpu resources through a custom event
+/// due to lack of async support directly in ApplicationHandler methods.
+/// There's a bunch of messy code here related to this
+#[derive(Debug)]
+enum CustomEvent {
+    #[cfg(target_arch = "wasm32")]
+    WindowCreated(ActiveRenderWindow),
+}
+
 /// A window for drawing real-time graphics.
 ///
 /// See [`run_animation`][Self::run_animation], [`Animation`][crate::Animation],
@@ -78,7 +60,7 @@ pub struct RenderWindow {
     // and stored in `ActiveRenderWindow`
     params: WindowParams,
     // event loop in an option because we need to take it out to run it
-    event_loop: Option<EventLoop<()>>,
+    event_loop: Option<EventLoop<CustomEvent>>,
 }
 
 impl RenderWindow {
@@ -86,7 +68,7 @@ impl RenderWindow {
     pub fn new(params: WindowParams) -> Result<Self, winit::error::EventLoopError> {
         Ok(Self {
             params,
-            event_loop: Some(EventLoop::new()?),
+            event_loop: Some(EventLoop::with_user_event().build()?),
         })
     }
 
@@ -102,6 +84,17 @@ impl RenderWindow {
     /// Due to architectural limitations in the current version of `winit`,
     /// we cannot propagate errors that occurred in window or render context creation.
     /// If these things fail, this function will panic.
+    ///
+    /// # Consecutive animations and WASM
+    ///
+    /// On native platforms, this function returns after the animation is aborted
+    /// by closing the window or pressing q.
+    /// Thus you can run multiple animations consecutively in one program.
+    /// On the web, on the other hand, this never returns due to limitations
+    /// in window handling inside of a browser.
+    /// Thus you can only run one animation per program.
+    /// This is a limitation that can be worked around
+    /// and hopefully will be in the future, but requires some nontrivial work.
     pub fn run_animation<State, StepFn, DrawFn>(
         &mut self,
         anim: super::animation::Animation<State, StepFn, DrawFn>,
@@ -123,7 +116,14 @@ impl RenderWindow {
             1.0,
         );
 
+        #[allow(unused_mut)]
+        let mut event_loop = self.event_loop.take().unwrap();
+        event_loop.set_control_flow(ControlFlow::Poll);
+
         let mut anim_app = AnimationApp {
+            #[cfg(target_arch = "wasm32")]
+            loop_proxy: Some(event_loop.create_proxy()),
+
             window_params: self.params,
             window: None,
             camera,
@@ -134,14 +134,23 @@ impl RenderWindow {
             anim,
         };
 
-        let mut event_loop = self.event_loop.take().unwrap();
-        event_loop.set_control_flow(ControlFlow::Poll);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
+            event_loop.run_app_on_demand(&mut anim_app)?;
+            self.event_loop = Some(event_loop);
+            Ok(())
+        }
 
-        use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
-        event_loop.run_app_on_demand(&mut anim_app)?;
-
-        self.event_loop = Some(event_loop);
-        Ok(())
+        #[cfg(target_arch = "wasm32")]
+        {
+            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+            console_log::init().expect("Failed to initialize console logger");
+            // using `run_app` instead of the recommended `spawn_app` here
+            // because it allows us to use an API with lifetimes
+            event_loop.run_app(&mut anim_app)?;
+            Ok(())
+        }
     }
 }
 
@@ -151,6 +160,7 @@ impl RenderWindow {
 
 // An active window (created after the event loop is started)
 // and wgpu rendering context.
+#[derive(Debug)]
 pub(crate) struct ActiveRenderWindow {
     window: Window,
     pub(crate) device: wgpu::Device,
@@ -162,28 +172,67 @@ pub(crate) struct ActiveRenderWindow {
     msaa_texture: wgpu::Texture,
 }
 
+/// Return type for `ActiveRenderWindow::create_rest`.
+/// When not on wasm we return the window directly from creation.
+/// On wasm we instead maneuver it through a custom event and return nothing
+/// because we can't block on futures to get their return values
+#[cfg(not(target_arch = "wasm32"))]
+type CreateWindowRet = ActiveRenderWindow;
+#[cfg(target_arch = "wasm32")]
+type CreateWindowRet = ();
+
 impl ActiveRenderWindow {
-    async fn new(
-        event_loop: &ActiveEventLoop,
-        params: WindowParams,
-    ) -> Result<Self, WindowInitError> {
-        let mut window_attrs = Window::default_attributes();
-        window_attrs.title = "dexterior".to_string();
-        window_attrs.min_inner_size = Some(
-            winit::dpi::LogicalSize {
+    /// Create the window separately from the wgpu context.
+    /// This is needed to avoid the lifetime of the event loop in the async task,
+    /// since wasm requires the task to be 'static
+    fn create_window(event_loop: &ActiveEventLoop, params: WindowParams) -> Window {
+        let window_attrs = Window::default_attributes()
+            .with_title("dexterior")
+            .with_inner_size(winit::dpi::LogicalSize {
                 width: params.width as f64,
                 height: params.height as f64,
-            }
-            .into(),
-        );
-        let window = event_loop.create_window(window_attrs)?;
+            });
+        let window = event_loop
+            .create_window(window_attrs)
+            .expect("Failed to create window");
 
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::platform::web::WindowExtWebSys;
+            let canvas = window.canvas().expect("No canvas");
+            canvas.set_width(params.width as u32);
+            canvas.set_height(params.height as u32);
+            let canvas = web_sys::Element::from(canvas);
+            web_sys::window()
+                .and_then(|win| win.document())
+                // made-up convention for putting the window in a specific spot in the DOM,
+                // useful for embedding on websites
+                // (TODO: would be nice to support multiple of these on one page,
+                // e.g. for blog posts)
+                .and_then(|doc| match doc.get_element_by_id("wgpu-canvas") {
+                    Some(parent) => parent.append_child(&canvas).ok(),
+                    None => doc.body().and_then(|body| body.append_child(&canvas).ok()),
+                })
+                .expect("couldn't append canvas to document body");
+        }
+
+        window
+    }
+
+    /// Create the rest of the contexts besides the window.
+    async fn create_rest(
+        window: Window,
+        params: WindowParams,
+        #[cfg(target_arch = "wasm32")] proxy: EventLoopProxy<CustomEvent>,
+    ) -> CreateWindowRet {
         let instance = wgpu::Instance::default();
         let surface = unsafe {
-            instance.create_surface_unsafe(
-                wgpu::SurfaceTargetUnsafe::from_window(&window)
-                    .map_err(|_| WindowInitError::HandleError)?,
-            )?
+            instance
+                .create_surface_unsafe(
+                    wgpu::SurfaceTargetUnsafe::from_window(&window)
+                        .expect("Failed to get window handle"),
+                )
+                .expect("Failed to create surface")
         };
 
         let adapter = instance
@@ -193,7 +242,7 @@ impl ActiveRenderWindow {
                 compatible_surface: Some(&surface),
             })
             .await
-            .ok_or(WindowInitError::CreateAdapterError)?;
+            .expect("Failed to get adapter");
 
         let (device, queue) = adapter
             .request_device(
@@ -205,10 +254,14 @@ impl ActiveRenderWindow {
                 },
                 None,
             )
-            .await?;
+            .await
+            .expect("Failed to get device");
 
         let window_size = window.inner_size();
 
+        #[cfg(target_arch = "wasm32")]
+        let swapchain_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        #[cfg(not(target_arch = "wasm32"))]
         let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
         let swapchain_capabilities = surface.get_capabilities(&adapter);
 
@@ -227,7 +280,7 @@ impl ActiveRenderWindow {
         let msaa_texture =
             Self::create_msaa_texture(&device, swapchain_format, params.msaa_samples, window_size);
 
-        Ok(Self {
+        let win = Self {
             window,
             device,
             queue,
@@ -236,7 +289,16 @@ impl ActiveRenderWindow {
             swapchain_format,
             msaa_samples: params.msaa_samples,
             msaa_texture,
-        })
+        };
+
+        // on wasm, the data needs to be maneuvered out through an event
+        // because we can't block on futures
+        #[cfg(target_arch = "wasm32")]
+        proxy
+            .send_event(CustomEvent::WindowCreated(win))
+            .expect("Successfully created wgpu context but failed to send window event");
+        #[cfg(not(target_arch = "wasm32"))]
+        win
     }
 
     /// Create a multisampled texture to render to.
@@ -383,6 +445,11 @@ where
     StepFn: FnMut(&mut State),
     DrawFn: FnMut(&State, &mut crate::Painter),
 {
+    // event loop proxy allows us to send wgpu context to the active window
+    // after creating it in an async future
+    #[cfg(target_arch = "wasm32")]
+    loop_proxy: Option<EventLoopProxy<CustomEvent>>,
+
     window_params: WindowParams,
     window: Option<(ActiveRenderWindow, pl::Renderer)>,
     anim: crate::Animation<'mesh, State, StepFn, DrawFn>,
@@ -395,7 +462,7 @@ where
     next_state: State,
 }
 
-impl<'mesh, State, StepFn, DrawFn> winit::application::ApplicationHandler
+impl<'mesh, State, StepFn, DrawFn> winit::application::ApplicationHandler<CustomEvent>
     for AnimationApp<'mesh, State, StepFn, DrawFn>
 where
     State: crate::AnimationState,
@@ -403,11 +470,37 @@ where
     DrawFn: FnMut(&State, &mut crate::Painter),
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window =
-            futures::executor::block_on(ActiveRenderWindow::new(event_loop, self.window_params))
-                .expect("Failed to create window");
-        let renderer = pl::Renderer::new(&window, &self.anim.params);
-        self.window = Some((window, renderer));
+        let window = ActiveRenderWindow::create_window(event_loop, self.window_params);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let active_win = futures::executor::block_on(ActiveRenderWindow::create_rest(
+                window,
+                self.window_params,
+            ));
+            let renderer = pl::Renderer::new(&active_win, &self.anim.params);
+            self.window = Some((active_win, renderer));
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            wasm_bindgen_futures::spawn_local(ActiveRenderWindow::create_rest(
+                window,
+                self.window_params,
+                self.loop_proxy.take().unwrap(),
+            ));
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: CustomEvent) {
+        // get the wgpu context that was created in a spawned task
+        let CustomEvent::WindowCreated(active_win) = event;
+        let renderer = pl::Renderer::new(&active_win, &self.anim.params);
+
+        // initial redraw request is needed on web, otherwise nothing is drawn
+        active_win.window.request_redraw();
+        self.window = Some((active_win, renderer));
     }
 
     fn window_event(
@@ -417,7 +510,6 @@ where
         event: WindowEvent,
     ) {
         let Some((window, renderer)) = self.window.as_mut() else {
-            println!("window not created yet");
             return;
         };
 
@@ -481,6 +573,8 @@ where
                     // key mapping similar to matplotlib where applicable
                     match code {
                         KeyCode::KeyQ => {
+                            // don't exit on web since there's nothing we can do afterwards there
+                            #[cfg(not(target_arch = "wasm32"))]
                             event_loop.exit();
                         }
                         KeyCode::KeyN => {
