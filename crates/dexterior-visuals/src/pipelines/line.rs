@@ -1,7 +1,7 @@
 use nalgebra as na;
 use std::borrow::Cow;
 
-use crate::render_window::RenderContext;
+use crate::render_window::{ActiveRenderWindow, RenderContext};
 
 //
 // user-facing parameters
@@ -254,7 +254,7 @@ enum ScalingMode {
 type Vertex = [f32; 2];
 
 impl LinePipeline {
-    pub fn new(window: &crate::RenderWindow, res: &super::SharedResources) -> Self {
+    pub fn new(window: &ActiveRenderWindow, res: &super::SharedResources) -> Self {
         let label = Some("line");
 
         let segment_shader = window
@@ -418,11 +418,13 @@ impl LinePipeline {
                                 attributes,
                             },
                         ],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
                     },
                     fragment: Some(wgpu::FragmentState {
                         module: &segment_shader,
                         entry_point: "fs_main",
                         targets: &[Some(window.swapchain_format().into())],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
                     }),
                     primitive: wgpu::PrimitiveState {
                         topology: wgpu::PrimitiveTopology::TriangleList,
@@ -433,6 +435,7 @@ impl LinePipeline {
                     depth_stencil: None,
                     multisample: window.multisample_state(),
                     multiview: None,
+                    cache: None,
                 })
         };
 

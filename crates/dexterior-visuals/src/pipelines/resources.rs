@@ -5,7 +5,7 @@ use nalgebra as na;
 use crate::{
     camera::Camera,
     color_map::{self, ColorMap},
-    render_window::RenderContext,
+    render_window::{ActiveRenderWindow, RenderContext},
 };
 
 /// GPU resources (buffers, bind groups)
@@ -59,7 +59,7 @@ pub struct DynamicDataBuffer {
 }
 
 impl SharedResources {
-    pub fn new(window: &crate::RenderWindow, colormaps: &[ColorMap]) -> Self {
+    pub fn new(window: &ActiveRenderWindow, colormaps: &[ColorMap]) -> Self {
         //
         // camera
         //

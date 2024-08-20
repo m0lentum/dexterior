@@ -16,7 +16,7 @@ use itertools::izip;
 use nalgebra as na;
 use std::{cell::OnceCell, collections::HashMap};
 
-use crate::render_window::{RenderContext, RenderWindow};
+use crate::render_window::{ActiveRenderWindow, RenderContext};
 use dexterior_core as dex;
 
 pub(crate) struct Renderer {
@@ -50,7 +50,7 @@ pub(crate) struct RendererState {
 }
 
 impl Renderer {
-    pub fn new(window: &RenderWindow, params: &crate::AnimationParams) -> Self {
+    pub fn new(window: &ActiveRenderWindow, params: &crate::AnimationParams) -> Self {
         let resources = SharedResources::new(window, &params.color_maps);
 
         let color_map_names: HashMap<String, usize> = params

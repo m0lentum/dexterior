@@ -12,8 +12,8 @@
 //! This can be used to measure the accuracy of the method,
 //! since the exact solution ɸ is known.
 
-use dexterior as dex;
 use dex::visuals as dv;
+use dexterior as dex;
 use nalgebra as na;
 
 type Pressure = dex::Cochain<0, dex::Dual>;
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             draw.axes_2d(dv::AxesParams::default());
         },
-    });
+    })?;
 
     Ok(())
 }

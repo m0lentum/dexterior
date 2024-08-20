@@ -15,6 +15,7 @@
 
         rust = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" ];
+          targets = [ "wasm32-unknown-unknown" ];
         };
       in
       {
@@ -41,6 +42,7 @@
               "${libXcursor}/lib"
               "${libX11}/lib"
               # wgpu
+              "${pkgs.libxkbcommon}/lib"
               "${libXxf86vm}/lib"
               "${libXi}/lib"
               "${libXrandr}/lib"

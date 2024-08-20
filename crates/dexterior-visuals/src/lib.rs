@@ -34,6 +34,6 @@ pub use pipelines::{
 
 mod render_window;
 #[doc(inline)]
-pub use render_window::{RenderWindow, WindowInitError, WindowParams};
+pub use render_window::{RenderWindow, WindowParams};
 
 pub use palette;

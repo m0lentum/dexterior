@@ -3,9 +3,10 @@
 use std::time::Instant;
 
 use winit::{
-    event::{Event, VirtualKeyCode, WindowEvent},
-    event_loop::EventLoop,
-    window::{Window, WindowBuilder},
+    event::{ElementState, WindowEvent},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
+    window::Window,
 };
 
 use nalgebra as na;
@@ -13,11 +14,23 @@ use nalgebra as na;
 use super::{camera::Camera, pipelines as pl};
 
 /// An error that occurred when creating a [`RenderWindow`].
+///
+/// Unfortunately with the current winit version
+/// the window has to be created in a trait method from which
+/// this can't be propagated to the user, hence why it's private now
+/// (still used internally to make use of the `?` operator).
 #[derive(thiserror::Error, Debug)]
-pub enum WindowInitError {
+#[allow(clippy::enum_variant_names)]
+enum WindowInitError {
+    /// Failed to create [`winit`] event loop.
+    #[error("Failed to create winit event loop")]
+    EventLoopError(#[from] winit::error::EventLoopError),
     /// Failed to create the [`winit`] window.
     #[error("Failed to create winit window")]
     WindowOsError(#[from] winit::error::OsError),
+    /// Failed to get a window handle.
+    #[error("Failed to get a window handle")]
+    HandleError,
     /// Failed to create a [`wgpu::Surface`] for the window.
     #[error("Failed to create wgpu surface")]
     CreateSurfaceError(#[from] wgpu::CreateSurfaceError),
@@ -28,6 +41,10 @@ pub enum WindowInitError {
     #[error("Failed to get wgpu device")]
     RequestDeviceError(#[from] wgpu::RequestDeviceError),
 }
+
+//
+// user-facing API
+//
 
 /// Parameters for the creation of a [`RenderWindow`].
 #[derive(Clone, Copy, Debug)]
@@ -56,44 +73,118 @@ impl Default for WindowParams {
 /// and the examples in the [dexterior repo](https://github.com/m0lentum/dexterior)
 /// for how to draw into the window once created.
 pub struct RenderWindow {
-    // window needs to be kept around for it to not close,
-    // but doesn't need to be accessed
-    _window: Window,
-    // event loop in an option for convenience:
-    // we'll `take` it out to run the loop and still retain access to `&self`
-    // (otherwise we'd have to partial borrow everything while we're in the event loop)
+    // RenderWindow is just a wrapper to implement winit's `ApplicationHandler` on,
+    // all the actual resources are created on application resume
+    // and stored in `ActiveRenderWindow`
+    params: WindowParams,
+    // event loop in an option because we need to take it out to run it
     event_loop: Option<EventLoop<()>>,
+}
+
+impl RenderWindow {
+    /// Create a new render window.
+    pub fn new(params: WindowParams) -> Result<Self, winit::error::EventLoopError> {
+        Ok(Self {
+            params,
+            event_loop: Some(EventLoop::new()?),
+        })
+    }
+
+    /// Play an [`Animation`][crate::Animation] in the window.
+    ///
+    /// # Controls
+    /// - `Q`: end the animation and return from this function
+    /// - `N`: swap to the next color map (only works if
+    ///   [`Painter::set_color_map`][pl::Painter::set_color_map] is not called by the animation)
+    ///
+    /// # Panics
+    ///
+    /// Due to architectural limitations in the current version of `winit`,
+    /// we cannot propagate errors that occurred in window or render context creation.
+    /// If these things fail, this function will panic.
+    pub fn run_animation<State, StepFn, DrawFn>(
+        &mut self,
+        anim: super::animation::Animation<State, StepFn, DrawFn>,
+    ) -> Result<(), winit::error::EventLoopError>
+    where
+        State: crate::AnimationState,
+        StepFn: FnMut(&mut State),
+        DrawFn: FnMut(&State, &mut crate::Painter),
+    {
+        // get the (x, y) bounds of the mesh to construct a camera
+        // with a fitting viewport
+        // (3D cameras will need different construction once I get around to that,
+        // think about how to abstract this.
+        // also it could be fun to allow looking at a 2D mesh with a 3D camera)
+        let b = anim.mesh.bounds();
+        let camera = Camera::new_2d(
+            na::Vector2::new(b.min.x as f32, b.min.y as f32),
+            na::Vector2::new(b.max.x as f32, b.max.y as f32),
+            1.0,
+        );
+
+        let mut anim_app = AnimationApp {
+            window_params: self.params,
+            window: None,
+            camera,
+            frame_start_t: Instant::now(),
+            time_in_frame: 0.,
+            prev_state: anim.state.clone(),
+            next_state: anim.state.clone(),
+            anim,
+        };
+
+        let mut event_loop = self.event_loop.take().unwrap();
+        event_loop.set_control_flow(ControlFlow::Poll);
+
+        use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
+        event_loop.run_app_on_demand(&mut anim_app)?;
+
+        self.event_loop = Some(event_loop);
+        Ok(())
+    }
+}
+
+//
+// actual window and wgpu context
+//
+
+// An active window (created after the event loop is started)
+// and wgpu rendering context.
+pub(crate) struct ActiveRenderWindow {
+    window: Window,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     swapchain_format: wgpu::TextureFormat,
     msaa_samples: u32,
     msaa_texture: wgpu::Texture,
 }
 
-impl RenderWindow {
-    /// Create a new render window.
-    pub fn new(params: WindowParams) -> Result<Self, WindowInitError> {
-        futures::executor::block_on(Self::build_async(params))
-    }
-
-    /// Inner async method to create the window and wgpu context.
-    /// Async is needed for the wgpu init,
-    /// but I don't want users to need to use it.
-    /// (Maybe this could be exposed for users who already run in async contexts though?)
-    async fn build_async(params: WindowParams) -> Result<Self, WindowInitError> {
-        let event_loop = EventLoop::new();
-        let window = WindowBuilder::new()
-            .with_title("dexterior")
-            .with_inner_size(winit::dpi::LogicalSize {
+impl ActiveRenderWindow {
+    async fn new(
+        event_loop: &ActiveEventLoop,
+        params: WindowParams,
+    ) -> Result<Self, WindowInitError> {
+        let mut window_attrs = Window::default_attributes();
+        window_attrs.title = "dexterior".to_string();
+        window_attrs.min_inner_size = Some(
+            winit::dpi::LogicalSize {
                 width: params.width as f64,
                 height: params.height as f64,
-            })
-            .build(&event_loop)?;
+            }
+            .into(),
+        );
+        let window = event_loop.create_window(window_attrs)?;
 
         let instance = wgpu::Instance::default();
-        let surface = unsafe { instance.create_surface(&window)? };
+        let surface = unsafe {
+            instance.create_surface_unsafe(
+                wgpu::SurfaceTargetUnsafe::from_window(&window)
+                    .map_err(|_| WindowInitError::HandleError)?,
+            )?
+        };
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -107,9 +198,10 @@ impl RenderWindow {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
                     label: None,
+                    memory_hints: wgpu::MemoryHints::default(),
                 },
                 None,
             )
@@ -128,6 +220,7 @@ impl RenderWindow {
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: swapchain_capabilities.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &surface_config);
 
@@ -135,8 +228,7 @@ impl RenderWindow {
             Self::create_msaa_texture(&device, swapchain_format, params.msaa_samples, window_size);
 
         Ok(Self {
-            _window: window,
-            event_loop: Some(event_loop),
+            window,
             device,
             queue,
             surface,
@@ -239,122 +331,9 @@ impl RenderWindow {
             multisample_state,
         }
     }
-
-    /// Play an [`Animation`][crate::Animation] in the window.
-    ///
-    /// # Controls
-    /// - `Q`: end the animation and return from this function
-    /// - `N`: swap to the next color map (only works if
-    ///   [`Painter::set_color_map`][pl::Painter::set_color_map] is not called by the animation)
-    pub fn run_animation<State, StepFn, DrawFn>(
-        &mut self,
-        mut anim: super::animation::Animation<State, StepFn, DrawFn>,
-    ) where
-        State: crate::AnimationState,
-        StepFn: FnMut(&mut State),
-        DrawFn: FnMut(&State, &mut crate::Painter),
-    {
-        let mut renderer = pl::Renderer::new(self, &anim.params);
-
-        // get the (x, y) bounds of the mesh to construct a camera
-        // with a fitting viewport
-        // (3D cameras will need different construction once I get around to that,
-        // think about how to abstract this.
-        // also it could be fun to allow looking at a 2D mesh with a 3D camera)
-        let b = anim.mesh.bounds();
-        let camera = Camera::new_2d(
-            na::Vector2::new(b.min.x as f32, b.min.y as f32),
-            na::Vector2::new(b.max.x as f32, b.max.y as f32),
-            1.0,
-        );
-
-        // double-buffered simulation state for interpolated drawing
-        let mut next_state = anim.state.clone();
-        let mut prev_state = anim.state;
-
-        // state for the timing of frames
-        let mut frame_start_t = Instant::now();
-        let mut time_in_frame = 0.;
-
-        // take the event loop out of `self` to be able to call methods on `self` inside the loop
-        let mut event_loop = self.event_loop.take().unwrap();
-        use winit::platform::run_return::EventLoopExtRunReturn;
-        event_loop.run_return(|event, _, control_flow| {
-            control_flow.set_poll();
-            match event {
-                Event::MainEventsCleared => {
-                    // step as many times as needed to keep up with real time
-
-                    let since_last_draw = frame_start_t.elapsed().as_secs_f64();
-                    time_in_frame += since_last_draw;
-
-                    let mut steps_done = 0;
-                    while time_in_frame > anim.dt {
-                        // ...but don't go beyond a maximum to avoid the "spiral of death"
-                        // where we constantly fall farther and farther behind real time
-                        if steps_done < anim.params.max_steps_per_frame {
-                            prev_state = next_state.clone();
-                            (anim.step)(&mut next_state);
-                            steps_done += 1;
-                        }
-                        time_in_frame -= anim.dt;
-                    }
-
-                    // draw
-
-                    frame_start_t = Instant::now();
-
-                    let mut ctx = self.begin_frame();
-                    renderer.resources.upload_frame_uniforms(&camera, &mut ctx);
-
-                    let mut painter = pl::Painter {
-                        ctx: &mut ctx,
-                        rend: &mut renderer,
-                        mesh: anim.mesh,
-                    };
-
-                    let interpolated_state =
-                        State::interpolate(&prev_state, &next_state, time_in_frame / anim.dt);
-                    (anim.draw)(&interpolated_state, &mut painter);
-
-                    ctx.queue.submit(Some(ctx.encoder.finish()));
-                    renderer.end_frame();
-                    ctx.surface_tex.present();
-                }
-                Event::WindowEvent { event, .. } => {
-                    // TODO: camera controls
-
-                    match event {
-                        WindowEvent::CloseRequested => {
-                            control_flow.set_exit();
-                        }
-                        WindowEvent::Resized(new_size) => {
-                            self.resize_swapchain(new_size);
-                        }
-                        WindowEvent::KeyboardInput { input, .. } => {
-                            if input.state == winit::event::ElementState::Pressed {
-                                // key mapping similar to matplotlib where applicable
-                                match input.virtual_keycode {
-                                    Some(VirtualKeyCode::Q) => {
-                                        control_flow.set_exit();
-                                    }
-                                    Some(VirtualKeyCode::N) => {
-                                        renderer.cycle_color_maps();
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
-        });
-        self.event_loop = Some(event_loop);
-    }
 }
 
+/// An active surface and other context required to draw a frame.
 pub(crate) struct RenderContext<'a> {
     // if this is set, first pass automatically clears the framebuffer
     clear_color: Option<wgpu::Color>,
@@ -390,5 +369,128 @@ impl<'a> RenderContext<'a> {
             occlusion_query_set: None,
             timestamp_writes: None,
         })
+    }
+}
+
+//
+// animation control
+//
+
+/// A `winit` app controlling the playback of an animation.
+struct AnimationApp<'mesh, State, StepFn, DrawFn>
+where
+    State: crate::AnimationState,
+    StepFn: FnMut(&mut State),
+    DrawFn: FnMut(&State, &mut crate::Painter),
+{
+    window_params: WindowParams,
+    window: Option<(ActiveRenderWindow, pl::Renderer)>,
+    anim: crate::Animation<'mesh, State, StepFn, DrawFn>,
+    camera: Camera,
+    // state for the timing of frames
+    frame_start_t: Instant,
+    time_in_frame: f64,
+    // double-buffered simulation state for interpolated drawing
+    prev_state: State,
+    next_state: State,
+}
+
+impl<'mesh, State, StepFn, DrawFn> winit::application::ApplicationHandler
+    for AnimationApp<'mesh, State, StepFn, DrawFn>
+where
+    State: crate::AnimationState,
+    StepFn: FnMut(&mut State),
+    DrawFn: FnMut(&State, &mut crate::Painter),
+{
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let window =
+            futures::executor::block_on(ActiveRenderWindow::new(event_loop, self.window_params))
+                .expect("Failed to create window");
+        let renderer = pl::Renderer::new(&window, &self.anim.params);
+        self.window = Some((window, renderer));
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        let Some((window, renderer)) = self.window.as_mut() else {
+            println!("window not created yet");
+            return;
+        };
+
+        match event {
+            WindowEvent::RedrawRequested => {
+                // step as many times as needed to keep up with real time
+
+                let since_last_draw = self.frame_start_t.elapsed().as_secs_f64();
+                self.time_in_frame += since_last_draw;
+
+                let mut steps_done = 0;
+                while self.time_in_frame > self.anim.dt {
+                    // ...but don't go beyond a maximum to avoid the "spiral of death"
+                    // where we constantly fall farther and farther behind real time
+                    if steps_done < self.anim.params.max_steps_per_frame {
+                        self.prev_state = self.next_state.clone();
+                        (self.anim.step)(&mut self.next_state);
+                        steps_done += 1;
+                    }
+                    self.time_in_frame -= self.anim.dt;
+                }
+
+                // draw
+
+                self.frame_start_t = Instant::now();
+
+                let mut ctx = window.begin_frame();
+                renderer
+                    .resources
+                    .upload_frame_uniforms(&self.camera, &mut ctx);
+
+                let mut painter = pl::Painter {
+                    ctx: &mut ctx,
+                    rend: renderer,
+                    mesh: self.anim.mesh,
+                };
+
+                let interpolated_state = State::interpolate(
+                    &self.prev_state,
+                    &self.next_state,
+                    self.time_in_frame / self.anim.dt,
+                );
+                (self.anim.draw)(&interpolated_state, &mut painter);
+
+                ctx.queue.submit(Some(ctx.encoder.finish()));
+                renderer.end_frame();
+                ctx.surface_tex.present();
+
+                window.window.request_redraw();
+            }
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+            }
+            WindowEvent::Resized(new_size) => {
+                window.resize_swapchain(new_size);
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let (ElementState::Pressed, PhysicalKey::Code(code)) =
+                    (event.state, event.physical_key)
+                {
+                    // key mapping similar to matplotlib where applicable
+                    match code {
+                        KeyCode::KeyQ => {
+                            event_loop.exit();
+                        }
+                        KeyCode::KeyN => {
+                            renderer.cycle_color_maps();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "run-wasm"]
 default-members = ["crates/*"]
 resolver = "2"
 

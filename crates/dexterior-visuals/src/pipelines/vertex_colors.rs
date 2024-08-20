@@ -69,11 +69,13 @@ impl VertexColorsPipeline {
                             shader_location: 0,
                         }],
                     }],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: "fs_main",
                     targets: &[Some(ctx.target_format.into())],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -84,6 +86,7 @@ impl VertexColorsPipeline {
                 depth_stencil: None,
                 multisample: ctx.multisample_state,
                 multiview: None,
+                cache: None,
             });
 
         // upload vertices and indices
