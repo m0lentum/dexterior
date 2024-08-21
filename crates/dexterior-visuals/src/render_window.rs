@@ -31,6 +31,16 @@ pub struct WindowParams {
     /// Note that MSAA is not supported on WebGL,
     /// so this setting does nothing there.
     pub msaa_samples: u32,
+    /// Id of the HTML element to embed this window under on the web.
+    /// Default: "wgpu-canvas".
+    ///
+    /// This is useful for embedding multiple examples
+    /// in different locations on one web page.
+    /// If an element with this id is not found,
+    /// the canvas is appended to the end of the document instead.
+    ///
+    /// This does not do anything outside of the web platform.
+    pub parent_element_id: &'static str,
 }
 
 impl Default for WindowParams {
@@ -39,6 +49,7 @@ impl Default for WindowParams {
             width: 800,
             height: 800,
             msaa_samples: 4,
+            parent_element_id: "wgpu-canvas",
         }
     }
 }
@@ -209,14 +220,12 @@ impl ActiveRenderWindow {
             let canvas = web_sys::Element::from(canvas);
             web_sys::window()
                 .and_then(|win| win.document())
-                // made-up convention for putting the window in a specific spot in the DOM,
-                // useful for embedding on websites
-                // (TODO: would be nice to support multiple of these on one page,
-                // e.g. for blog posts)
-                .and_then(|doc| match doc.get_element_by_id("wgpu-canvas") {
-                    Some(parent) => parent.append_child(&canvas).ok(),
-                    None => doc.body().and_then(|body| body.append_child(&canvas).ok()),
-                })
+                .and_then(
+                    |doc| match doc.get_element_by_id(params.parent_element_id) {
+                        Some(parent) => parent.append_child(&canvas).ok(),
+                        None => doc.body().and_then(|body| body.append_child(&canvas).ok()),
+                    },
+                )
                 .expect("couldn't append canvas to document body");
         }
 
