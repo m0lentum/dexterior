@@ -176,7 +176,7 @@ impl RenderWindow {
 // and wgpu rendering context.
 #[derive(Debug)]
 pub(crate) struct ActiveRenderWindow {
-    window: Window,
+    _window: Window,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
@@ -316,7 +316,7 @@ impl ActiveRenderWindow {
         };
 
         let win = Self {
-            window,
+            _window: window,
             device,
             queue,
             surface,
@@ -538,9 +538,58 @@ where
         let CustomEvent::WindowCreated(active_win) = event;
         let renderer = pl::Renderer::new(&active_win, &self.anim.params);
 
-        // initial redraw request is needed on web, otherwise nothing is drawn
-        active_win.window.request_redraw();
         self.window = Some((active_win, renderer));
+    }
+
+    /// step and draw in about_to_wait even though winit recommends against it,
+    /// because waiting for RedrawRequested events causes stuttering on web
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        let Some((window, renderer)) = self.window.as_mut() else {
+            return;
+        };
+
+        // step as many times as needed to keep up with real time
+
+        let since_last_draw = self.frame_start_t.elapsed().as_secs_f64();
+        self.time_in_frame += since_last_draw;
+
+        let mut steps_done = 0;
+        while self.time_in_frame > self.anim.dt {
+            // ...but don't go beyond a maximum to avoid the "spiral of death"
+            // where we constantly fall farther and farther behind real time
+            if steps_done < self.anim.params.max_steps_per_frame {
+                self.prev_state = self.next_state.clone();
+                (self.anim.step)(&mut self.next_state);
+                steps_done += 1;
+            }
+            self.time_in_frame -= self.anim.dt;
+        }
+
+        // draw
+
+        self.frame_start_t = Instant::now();
+
+        let mut ctx = window.begin_frame();
+        renderer
+            .resources
+            .upload_frame_uniforms(&self.camera, &mut ctx);
+
+        let mut painter = pl::Painter {
+            ctx: &mut ctx,
+            rend: renderer,
+            mesh: self.anim.mesh,
+        };
+
+        let interpolated_state = State::interpolate(
+            &self.prev_state,
+            &self.next_state,
+            self.time_in_frame / self.anim.dt,
+        );
+        (self.anim.draw)(&interpolated_state, &mut painter);
+
+        ctx.queue.submit(Some(ctx.encoder.finish()));
+        renderer.end_frame();
+        ctx.surface_tex.present();
     }
 
     fn window_event(
@@ -554,52 +603,6 @@ where
         };
 
         match event {
-            WindowEvent::RedrawRequested => {
-                // step as many times as needed to keep up with real time
-
-                let since_last_draw = self.frame_start_t.elapsed().as_secs_f64();
-                self.time_in_frame += since_last_draw;
-
-                let mut steps_done = 0;
-                while self.time_in_frame > self.anim.dt {
-                    // ...but don't go beyond a maximum to avoid the "spiral of death"
-                    // where we constantly fall farther and farther behind real time
-                    if steps_done < self.anim.params.max_steps_per_frame {
-                        self.prev_state = self.next_state.clone();
-                        (self.anim.step)(&mut self.next_state);
-                        steps_done += 1;
-                    }
-                    self.time_in_frame -= self.anim.dt;
-                }
-
-                // draw
-
-                self.frame_start_t = Instant::now();
-
-                let mut ctx = window.begin_frame();
-                renderer
-                    .resources
-                    .upload_frame_uniforms(&self.camera, &mut ctx);
-
-                let mut painter = pl::Painter {
-                    ctx: &mut ctx,
-                    rend: renderer,
-                    mesh: self.anim.mesh,
-                };
-
-                let interpolated_state = State::interpolate(
-                    &self.prev_state,
-                    &self.next_state,
-                    self.time_in_frame / self.anim.dt,
-                );
-                (self.anim.draw)(&interpolated_state, &mut painter);
-
-                ctx.queue.submit(Some(ctx.encoder.finish()));
-                renderer.end_frame();
-                ctx.surface_tex.present();
-
-                window.window.request_redraw();
-            }
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
