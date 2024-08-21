@@ -41,11 +41,11 @@ pub(crate) struct RendererState {
     /// Range of values mapped onto the color map.
     color_map_range: Option<std::ops::Range<f32>>,
     /// Number of color-mapped draw calls made this frame.
-    /// Used to determine which storage buffer to use for the next call,
+    /// Used to determine which buffer to use for the next call,
     /// since we can't upload to the same one multiple times per frame.
     next_color_data: usize,
     /// Same for the line renderer,
-    /// which builds a storage buffer per call during a frame.
+    /// which builds a buffer per call during a frame.
     next_line_data: usize,
 }
 

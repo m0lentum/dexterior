@@ -27,6 +27,9 @@ pub struct WindowParams {
     /// Initial height of the window in pixels. Default: 800.
     pub height: usize,
     /// Samples used for anti-aliasing. Default: 4.
+    ///
+    /// Note that MSAA is not supported on WebGL,
+    /// so this setting does nothing there.
     pub msaa_samples: u32,
 }
 
@@ -169,7 +172,8 @@ pub(crate) struct ActiveRenderWindow {
     surface_config: wgpu::SurfaceConfiguration,
     swapchain_format: wgpu::TextureFormat,
     msaa_samples: u32,
-    msaa_texture: wgpu::Texture,
+    // msaa texture is only created if multisampling is used
+    msaa_tex: Option<wgpu::Texture>,
 }
 
 /// Return type for `ActiveRenderWindow::create_rest`.
@@ -248,7 +252,10 @@ impl ActiveRenderWindow {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     required_features: wgpu::Features::empty(),
+                    #[cfg(not(target_arch = "wasm32"))]
                     required_limits: wgpu::Limits::default(),
+                    #[cfg(target_arch = "wasm32")]
+                    required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
                     label: None,
                     memory_hints: wgpu::MemoryHints::default(),
                 },
@@ -275,10 +282,29 @@ impl ActiveRenderWindow {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        surface.configure(&device, &surface_config);
 
-        let msaa_texture =
-            Self::create_msaa_texture(&device, swapchain_format, params.msaa_samples, window_size);
+        // MSAA is not supported on WebGL, so always set samples to 1
+        #[cfg(not(target_arch = "wasm32"))]
+        let msaa_samples = params.msaa_samples;
+        #[cfg(target_arch = "wasm32")]
+        let msaa_samples = 1;
+
+        // on the web, we can get a situation where the window size is 0 here.
+        // in that case, postpone surface configuration until we get a resize event
+        let window_has_pixels = surface_config.width != 0 && surface_config.height != 0;
+        if window_has_pixels {
+            surface.configure(&device, &surface_config);
+        }
+        let msaa_tex = if msaa_samples > 1 && window_has_pixels {
+            Some(Self::create_msaa_texture(
+                &device,
+                swapchain_format,
+                params.msaa_samples,
+                window_size,
+            ))
+        } else {
+            None
+        };
 
         let win = Self {
             window,
@@ -287,8 +313,8 @@ impl ActiveRenderWindow {
             surface,
             surface_config,
             swapchain_format,
-            msaa_samples: params.msaa_samples,
-            msaa_texture,
+            msaa_samples,
+            msaa_tex,
         };
 
         // on wasm, the data needs to be maneuvered out through an event
@@ -332,12 +358,14 @@ impl ActiveRenderWindow {
         self.surface_config.width = new_size.width;
         self.surface_config.height = new_size.height;
         self.surface.configure(&self.device, &self.surface_config);
-        self.msaa_texture = Self::create_msaa_texture(
-            &self.device,
-            self.swapchain_format,
-            self.msaa_samples,
-            new_size,
-        );
+        if self.msaa_samples > 1 {
+            self.msaa_tex = Some(Self::create_msaa_texture(
+                &self.device,
+                self.swapchain_format,
+                self.msaa_samples,
+                new_size,
+            ));
+        }
     }
 
     /// Get the format of the swapchain texture being rendered to.
@@ -371,9 +399,12 @@ impl ActiveRenderWindow {
         let surface_view = surface_tex
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let msaa_view = self
-            .msaa_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let (target, resolve_target) = if let Some(msaa_tex) = &self.msaa_tex {
+            let msaa_view = msaa_tex.create_view(&wgpu::TextureViewDescriptor::default());
+            (msaa_view, Some(surface_view))
+        } else {
+            (surface_view, None)
+        };
         let encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -383,8 +414,8 @@ impl ActiveRenderWindow {
         RenderContext {
             clear_color: Some(wgpu::Color::WHITE),
             surface_tex,
-            target: msaa_view,
-            resolve_target: surface_view,
+            target,
+            resolve_target,
             encoder,
             device: &self.device,
             queue: &mut self.queue,
@@ -401,7 +432,7 @@ pub(crate) struct RenderContext<'a> {
     clear_color: Option<wgpu::Color>,
     surface_tex: wgpu::SurfaceTexture,
     pub target: wgpu::TextureView,
-    pub resolve_target: wgpu::TextureView,
+    pub resolve_target: Option<wgpu::TextureView>,
     pub encoder: wgpu::CommandEncoder,
     pub device: &'a wgpu::Device,
     pub queue: &'a mut wgpu::Queue,
@@ -417,7 +448,7 @@ impl<'a> RenderContext<'a> {
             label: Some(label),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.target,
-                resolve_target: Some(&self.resolve_target),
+                resolve_target: self.resolve_target.as_ref(),
                 ops: wgpu::Operations {
                     load: if let Some(c) = self.clear_color.take() {
                         wgpu::LoadOp::Clear(c)

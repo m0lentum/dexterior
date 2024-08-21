@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use crate::render_window::RenderContext;
 use dexterior_core as dex;
 
@@ -12,6 +10,7 @@ pub(crate) enum VertexColorVariant {
 }
 
 pub(crate) struct VertexColorsPipeline {
+    variant: VertexColorVariant,
     pipeline: wgpu::RenderPipeline,
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
@@ -29,17 +28,7 @@ impl VertexColorsPipeline {
 
         let shader = ctx
             .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label,
-                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(match variant {
-                    VertexColorVariant::InterpolatedVertices => {
-                        include_str!("../shaders/vertex_colors.wgsl")
-                    }
-                    VertexColorVariant::FlatTriangles => {
-                        include_str!("../shaders/flat_triangles.wgsl")
-                    }
-                })),
-            });
+            .create_shader_module(wgpu::include_wgsl!("../shaders/vertex_colors.wgsl"));
 
         let pipeline_layout = ctx
             .device
@@ -47,7 +36,7 @@ impl VertexColorsPipeline {
                 label,
                 bind_group_layouts: &[
                     &res.frame_bind_group_layout,
-                    &res.color_data_bind_group_layout,
+                    &res.colormap_params_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -59,16 +48,29 @@ impl VertexColorsPipeline {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vs_main",
-                    buffers: &[wgpu::VertexBufferLayout {
-                        // 3D position vectors
-                        array_stride: 4 * 3,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x3,
-                            offset: 0,
-                            shader_location: 0,
-                        }],
-                    }],
+                    buffers: &[
+                        wgpu::VertexBufferLayout {
+                            // 3D position vectors
+                            array_stride: 4 * 3,
+                            step_mode: wgpu::VertexStepMode::Vertex,
+                            attributes: &[wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32x3,
+                                offset: 0,
+                                shader_location: 0,
+                            }],
+                        },
+                        // cochain values in a secondary vertex buffer
+                        // so positions don't need reuploading
+                        wgpu::VertexBufferLayout {
+                            array_stride: 4,
+                            step_mode: wgpu::VertexStepMode::Vertex,
+                            attributes: &[wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32,
+                                offset: 0,
+                                shader_location: 1,
+                            }],
+                        },
+                    ],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -132,6 +134,7 @@ impl VertexColorsPipeline {
             });
 
         Self {
+            variant,
             pipeline,
             vertex_buf,
             index_buf,
@@ -146,14 +149,32 @@ impl VertexColorsPipeline {
         state: &mut super::RendererState,
         data: &[f64],
     ) {
-        res.upload_color_data(ctx, state, data);
+        // we need to copy the data values for each vertex of a flat triangle,
+        // since these values are stored in a vertex buffer
+        // and it's not possible to only have it increment once every 3 vertices
+        let duplicate_count = match self.variant {
+            VertexColorVariant::InterpolatedVertices => 1,
+            VertexColorVariant::FlatTriangles => 3,
+        };
+        let data: Vec<f32> = data
+            .iter()
+            .flat_map(|v| std::iter::repeat(*v as f32).take(duplicate_count))
+            .collect();
+
+        res.upload_color_data(ctx, state, &data);
+        let color_data = res.latest_colored_data(state);
 
         let mut pass = ctx.pass("vertex colors");
+
         pass.set_pipeline(&self.pipeline);
+
         pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-        pass.set_bind_group(0, &res.frame_bind_group, &[]);
-        pass.set_bind_group(1, res.latest_color_bind_group(state), &[]);
+        pass.set_vertex_buffer(1, color_data.data_buf.slice(..));
         pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
+
+        pass.set_bind_group(0, &res.frame_bind_group, &[]);
+        pass.set_bind_group(1, &color_data.bind_group, &[]);
+
         pass.draw_indexed(0..self.index_count, 0, 0..1);
     }
 }

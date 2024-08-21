@@ -31,3 +31,9 @@ wasm-bindgen-futures = "0.4.43"
 console_error_panic_hook = "0.1.7"
 log = "0.4"
 console_log = "1"
+
+# enable webgl support on wasm
+[target.'cfg(target_arch = "wasm32")'.dependencies.wgpu]
+version = "22.1.0"
+default-features = false
+features = ["webgl", "wgsl"]
