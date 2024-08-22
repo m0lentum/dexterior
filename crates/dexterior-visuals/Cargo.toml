@@ -19,9 +19,18 @@ encase = { version = "0.6.1", features = ["nalgebra"] }
 enterpolation = "0.2.1"
 futures = "0.3.29"
 palette = "0.7.3"
-wgpu = "22.1.0"
 winit = "0.30.5"
 web-time = "0.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.wgpu]
+version = "22.1.0"
+default-features = true
+
+# force webgl on wasm, even if webgpu is supported by the browser
+[target.'cfg(target_arch = "wasm32")'.dependencies.wgpu]
+version = "22.1.0"
+default-features = false
+features = ["webgl", "wgsl"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.93"
@@ -31,9 +40,3 @@ wasm-bindgen-futures = "0.4.43"
 console_error_panic_hook = "0.1.7"
 log = "0.4"
 console_log = "1"
-
-# enable webgl support on wasm
-[target.'cfg(target_arch = "wasm32")'.dependencies.wgpu]
-version = "22.1.0"
-default-features = false
-features = ["webgl", "wgsl"]
