@@ -547,6 +547,11 @@ where
         let Some((window, renderer)) = self.window.as_mut() else {
             return;
         };
+        if window.surface_config.width == 0 || window.surface_config.height == 0 {
+            // we're on the web (most likely)
+            // and the canvas hasn't been fully initialized yet, keep waiting
+            return;
+        }
 
         // step as many times as needed to keep up with real time
 
