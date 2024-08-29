@@ -61,6 +61,8 @@ pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     coboundary_map: nas::CsrMatrix<i8>,
     /// simplices on the boundary of the mesh.
     mesh_boundary: fb::FixedBitSet,
+    /// user-defined subsets, e.g. physical groups from gmsh meshes.
+    custom_subsets: HashMap<String, fb::FixedBitSet>,
     /// circumcenters and barycenters Rc'd so that 0-simplices
     /// can have the mesh vertices here without duplicating data
     circumcenters: Rc<[na::SVector<f64, MESH_DIM>]>,
@@ -86,6 +88,7 @@ impl<const DIM: usize> Default for SimplexCollection<DIM> {
             boundary_map: nas::CsrMatrix::zeros(0, 0),
             coboundary_map: nas::CsrMatrix::zeros(0, 0),
             mesh_boundary: fb::FixedBitSet::default(),
+            custom_subsets: HashMap::new(),
             circumcenters: Rc::from([]),
             barycenters: Rc::from([]),
             barycentric_differentials: OnceCell::new(),
@@ -118,7 +121,7 @@ impl<const DIM: usize> SimplexCollection<DIM> {
 pub struct SubsetRef<'a, Dimension, Primality> {
     /// A bitset containing the indices of simplices present in the subset.
     ///
-    /// Iterate over the indices with `self.indices.ones()`.
+    /// Iterate over the indices with `indices.ones()`.
     pub indices: &'a fb::FixedBitSet,
     _marker: std::marker::PhantomData<(Dimension, Primality)>,
 }
@@ -158,6 +161,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         let start_idx = idx * self.simplices[DIM].simplex_size;
         let idx_range = start_idx..start_idx + self.simplices[DIM].simplex_size;
         SimplexView {
+            index: idx,
             vertices: &self.vertices,
             indices: &self.simplices[DIM].indices[idx_range],
         }
@@ -400,6 +404,63 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
     }
 
+    /// Create a subset of `DIM`-simplices from an iterator of simplex indices.
+    ///
+    /// The subset can be accessed using [`get_subset`][Self::get_subset]
+    /// with the name given to this function.
+    pub fn create_subset_from_indices<const DIM: usize>(
+        &mut self,
+        name: impl Into<String>,
+        indices: impl Iterator<Item = usize>,
+    ) {
+        let bits = fb::FixedBitSet::from_iter(indices);
+        self.simplices[DIM].custom_subsets.insert(name.into(), bits);
+    }
+
+    /// Create a subset of `DIM`-simplices containing the simplices
+    /// that pass the given predicate.
+    ///
+    /// The subset can be accessed using [`get_subset`][Self::get_subset]
+    /// with the name given to this function.
+    pub fn create_subset_from_predicate<const DIM: usize>(
+        &mut self,
+        name: impl Into<String>,
+        pred: impl Fn(SimplexView<DIM, MESH_DIM>) -> bool,
+    ) {
+        let bits: fb::FixedBitSet = self
+            .simplices::<DIM>()
+            .enumerate()
+            .filter(|(_, s)| pred(*s))
+            .map(|(i, _)| i)
+            .collect();
+
+        self.simplices[DIM].custom_subsets.insert(name.into(), bits);
+    }
+
+    /// Look up a user-defined subset of `DIM`-simplices by name.
+    ///
+    /// Returns None if a subset with the name does not exist for this dimension.
+    /// No subsets exist by default; they have to be created
+    /// by either using one of [`create_subset_from_indices`][Self::create_subset_from_indices]
+    /// and [`create_subset_from_predicate`][Self::create_subset_from_predicate]
+    /// or by defining physical groups in a `gmsh` file.
+    ///
+    /// Note that the mesh boundary is a special subset
+    /// accessed through [`boundary`][Self::boundary] instead of this method.
+    pub fn get_subset<const DIM: usize>(
+        &self,
+        name: &str,
+    ) -> Option<SubsetRef<'_, na::Const<DIM>, Primal>>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        let indices = self.simplices[DIM].custom_subsets.get(name)?;
+        Some(SubsetRef {
+            indices,
+            _marker: std::marker::PhantomData,
+        })
+    }
+
     /// Find the index of a simplex in its collection given its vertex indices.
     ///
     /// This is not useful very often, but can be used
@@ -537,7 +598,10 @@ impl MeshPrimality for Dual {
 /// Eventually it will be possible to navigate boundaries,
 /// volumes, etc. via these views and [`SimplexIter`],
 /// but these will be added as they become needed in practical applications.
+#[derive(Clone, Copy, Debug)]
 pub struct SimplexView<'a, const DIM: usize, const MESH_DIM: usize> {
+    // index of the simplex in the array of simplices
+    index: usize,
     indices: &'a [usize],
     // view into all vertices of the mesh,
     // indexed into by values in the `indices` slice
@@ -546,12 +610,26 @@ pub struct SimplexView<'a, const DIM: usize, const MESH_DIM: usize> {
 
 impl<'a, const DIM: usize, const MESH_DIM: usize> SimplexView<'a, DIM, MESH_DIM> {
     /// Iterate over the vertices of this simplex.
+    #[inline]
     pub fn vertices(&self) -> impl '_ + Iterator<Item = na::SVector<f64, MESH_DIM>> {
         self.indices.iter().map(|i| self.vertices[*i])
+    }
+
+    /// Iterate over the vertex indices of this simplex.
+    #[inline]
+    pub fn vertex_indices(&self) -> impl '_ + Iterator<Item = usize> {
+        self.indices.iter().cloned()
+    }
+
+    /// Get the index of this simplex in the array of `DIM`-simplices.
+    #[inline]
+    pub fn index(&self) -> usize {
+        self.index
     }
 }
 
 /// Iterator over a set of `DIM`-simplices in a mesh.
+#[derive(Clone, Copy, Debug)]
 pub struct SimplexIter<'a, const DIM: usize, const MESH_DIM: usize> {
     mesh: &'a SimplicialMesh<MESH_DIM>,
     index: usize,
@@ -568,5 +646,24 @@ impl<'a, const DIM: usize, const MESH_DIM: usize> Iterator for SimplexIter<'a, D
         let ret = self.mesh.get_simplex_by_index::<DIM>(self.index);
         self.index += 1;
         Some(ret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_subsets() {
+        let mut mesh = tiny_mesh_3d();
+
+        let indices = [1, 3, 8];
+        mesh.create_subset_from_indices::<1>("indices", indices.iter().cloned());
+        mesh.create_subset_from_predicate::<1>("predicate", |s| indices.contains(&s.index()));
+
+        let idx_subset = mesh.get_subset::<1>("indices").unwrap();
+        let pred_subset = mesh.get_subset::<1>("predicate").unwrap();
+        assert_eq!(idx_subset.indices, pred_subset.indices);
+        itertools::assert_equal(idx_subset.indices.ones(), indices.iter().cloned());
     }
 }
