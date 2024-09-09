@@ -3,8 +3,7 @@
 /// Low-level mesh construction and corresponding tests.
 mod mesh_construction;
 /// re-export the testing meshes for use in other modules' tests
-/// (pub because it's also used in examples at the moment.
-/// this should be changed once we have better mesh generation tools)
+/// (pub because they're used outside of the core crate)
 #[doc(hidden)]
 pub use mesh_construction::{tiny_mesh_2d, tiny_mesh_3d};
 
