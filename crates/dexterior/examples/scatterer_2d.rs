@@ -115,8 +115,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // TODO: option to integrate only a subset of the cochain
             let boundary_wave: Flux = mesh.integrate_cochain(|v| eval_wave_flux(t_at_q, v));
             let easing_coef = easing(t_at_q);
-            for idx in scattering_boundary.indices.ones() {
-                state.q.values[idx] = easing_coef * boundary_wave.values[idx];
+            for edge in mesh.simplices_in(scattering_boundary) {
+                state.q[edge] = easing_coef * boundary_wave[edge];
             }
 
             // absorbing boundary.

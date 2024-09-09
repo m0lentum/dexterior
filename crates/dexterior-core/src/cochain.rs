@@ -89,6 +89,28 @@ impl<D, P> PartialEq for CochainImpl<D, P> {
     }
 }
 
+// Index with SimplexViews
+// (there's no equivalent view for dual cells yet
+// so this only works for primal simplices at the moment)
+
+impl<'a, D: na::DimName, const MESH_DIM: usize> std::ops::Index<crate::SimplexView<'a, D, MESH_DIM>>
+    for CochainImpl<D, crate::Primal>
+{
+    type Output = f64;
+
+    fn index(&self, simplex: crate::SimplexView<'a, D, MESH_DIM>) -> &Self::Output {
+        &self.values[simplex.index()]
+    }
+}
+
+impl<'a, D: na::DimName, const MESH_DIM: usize>
+    std::ops::IndexMut<crate::SimplexView<'a, D, MESH_DIM>> for CochainImpl<D, crate::Primal>
+{
+    fn index_mut(&mut self, simplex: crate::SimplexView<'a, D, MESH_DIM>) -> &mut Self::Output {
+        &mut self.values[simplex.index()]
+    }
+}
+
 // Add
 
 impl<D, P> std::ops::Add for CochainImpl<D, P> {
