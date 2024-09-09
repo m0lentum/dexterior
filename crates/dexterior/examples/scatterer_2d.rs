@@ -136,26 +136,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         draw: |state, draw| {
             // add the incident wave (which we don't simulate) to the visualization
-            // TODO: having to use references for the second operand here
-            // is annoying especially if you wanted to multiply with a scalar too,
-            // and the errors for not doing so are confusing;
-            // we should add an Add impl for owned cochains
             let (total_p, total_q) = if show_inc_wave {
                 (
-                    &(&state.p + &mesh.integrate_cochain(|v| eval_wave_pressure(state.t, &v[0]))),
-                    &(&state.q + &mesh.integrate_cochain(|v| eval_wave_flux(state.t, v))),
+                    &state.p + mesh.integrate_cochain(|v| eval_wave_pressure(state.t, &v[0])),
+                    &state.q + mesh.integrate_cochain(|v| eval_wave_flux(state.t, v)),
                 )
             } else {
-                (&state.p, &state.q)
+                (state.p.clone(), state.q.clone())
             };
 
-            draw.triangle_colors_dual(total_p);
+            draw.triangle_colors_dual(&total_p);
             draw.wireframe(dv::WireframeParams {
                 width: dv::LineWidth::WorldUnits(0.015),
                 ..Default::default()
             });
             draw.flux_arrows(
-                total_q,
+                &total_q,
                 dv::ArrowParams {
                     scaling: dv::ArrowParams::default().scaling / 2.,
                     width: dv::LineWidth::WorldUnits(0.015),

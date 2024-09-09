@@ -69,10 +69,10 @@ impl<Dimension, Primality> crate::operator::Operand for CochainImpl<Dimension, P
     }
 }
 
-//
 // std trait impls for math ops and such
-// (many duplicated to also work with references)
-//
+// (several permutations needed to also work with references.
+// maybe this could be shortened with macros,
+// but I can't be bothered)
 
 impl<D, P> std::fmt::Debug for CochainImpl<D, P>
 where
@@ -89,11 +89,29 @@ impl<D, P> PartialEq for CochainImpl<D, P> {
     }
 }
 
+// Add
+
 impl<D, P> std::ops::Add for CochainImpl<D, P> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
         CochainImpl::from_values(self.values + rhs.values)
+    }
+}
+
+impl<D, P> std::ops::Add<&CochainImpl<D, P>> for CochainImpl<D, P> {
+    type Output = Self;
+
+    fn add(self, rhs: &CochainImpl<D, P>) -> Self::Output {
+        CochainImpl::from_values(self.values + &rhs.values)
+    }
+}
+
+impl<D, P> std::ops::Add<CochainImpl<D, P>> for &CochainImpl<D, P> {
+    type Output = CochainImpl<D, P>;
+
+    fn add(self, rhs: CochainImpl<D, P>) -> Self::Output {
+        CochainImpl::from_values(&self.values + rhs.values)
     }
 }
 
@@ -105,11 +123,21 @@ impl<D, P> std::ops::Add for &CochainImpl<D, P> {
     }
 }
 
+// AddAssign
+
 impl<D, P> std::ops::AddAssign for CochainImpl<D, P> {
     fn add_assign(&mut self, rhs: Self) {
         self.values += rhs.values;
     }
 }
+
+impl<D, P> std::ops::AddAssign<&CochainImpl<D, P>> for CochainImpl<D, P> {
+    fn add_assign(&mut self, rhs: &CochainImpl<D, P>) {
+        self.values += &rhs.values;
+    }
+}
+
+// Neg
 
 impl<D, P> std::ops::Neg for CochainImpl<D, P> {
     type Output = Self;
@@ -127,11 +155,29 @@ impl<D, P> std::ops::Neg for &CochainImpl<D, P> {
     }
 }
 
+// Sub
+
 impl<D, P> std::ops::Sub for CochainImpl<D, P> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
         Self::from_values(self.values - rhs.values)
+    }
+}
+
+impl<D, P> std::ops::Sub<&CochainImpl<D, P>> for CochainImpl<D, P> {
+    type Output = Self;
+
+    fn sub(self, rhs: &CochainImpl<D, P>) -> Self::Output {
+        CochainImpl::from_values(&self.values - &rhs.values)
+    }
+}
+
+impl<D, P> std::ops::Sub<CochainImpl<D, P>> for &CochainImpl<D, P> {
+    type Output = CochainImpl<D, P>;
+
+    fn sub(self, rhs: CochainImpl<D, P>) -> Self::Output {
+        CochainImpl::from_values(&self.values - &rhs.values)
     }
 }
 
@@ -143,11 +189,21 @@ impl<D, P> std::ops::Sub for &CochainImpl<D, P> {
     }
 }
 
+// SubAssign
+
 impl<D, P> std::ops::SubAssign for CochainImpl<D, P> {
     fn sub_assign(&mut self, rhs: Self) {
         self.values -= rhs.values;
     }
 }
+
+impl<D, P> std::ops::SubAssign<&CochainImpl<D, P>> for CochainImpl<D, P> {
+    fn sub_assign(&mut self, rhs: &CochainImpl<D, P>) {
+        self.values -= &rhs.values;
+    }
+}
+
+// Mul (scalar)
 
 impl<D, P> std::ops::Mul<CochainImpl<D, P>> for f64 {
     type Output = CochainImpl<D, P>;
