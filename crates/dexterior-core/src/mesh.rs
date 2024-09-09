@@ -184,8 +184,18 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     pub fn simplices<const DIM: usize>(&self) -> SimplexIter<'_, DIM, MESH_DIM> {
         SimplexIter {
             mesh: self,
-            index: 0,
-            len: self.simplices[DIM].len(),
+            idx_iter: IndexIter::All(0..self.simplices[DIM].len()),
+        }
+    }
+
+    /// Iterate over the set of `DIM`-simplices in the given subset.
+    pub fn simplices_in<'me, 'sub: 'me, const DIM: usize>(
+        &'me self,
+        subset: SubsetRef<'sub, na::Const<DIM>, Primal>,
+    ) -> SimplexIter<'me, DIM, MESH_DIM> {
+        SimplexIter {
+            mesh: self,
+            idx_iter: IndexIter::Subset(subset.indices.ones()),
         }
     }
 
@@ -725,23 +735,34 @@ where
 }
 
 /// Iterator over a set of `DIM`-simplices in a mesh.
-#[derive(Clone, Copy, Debug)]
 pub struct SimplexIter<'a, const DIM: usize, const MESH_DIM: usize> {
     mesh: &'a SimplicialMesh<MESH_DIM>,
-    index: usize,
-    len: usize,
+    idx_iter: IndexIter<'a>,
 }
 
 impl<'a, const DIM: usize, const MESH_DIM: usize> Iterator for SimplexIter<'a, DIM, MESH_DIM> {
     type Item = SimplexView<'a, na::Const<DIM>, MESH_DIM>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.len {
-            return None;
+        let next_idx = self.idx_iter.next()?;
+        Some(self.mesh.get_simplex_by_index::<DIM>(next_idx))
+    }
+}
+
+/// The indices to iterate over with [`SimplexIter`].
+enum IndexIter<'a> {
+    All(std::ops::Range<usize>),
+    Subset(fb::Ones<'a>),
+}
+
+impl<'a> Iterator for IndexIter<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::All(range) => range.next(),
+            Self::Subset(indices) => indices.next(),
         }
-        let ret = self.mesh.get_simplex_by_index::<DIM>(self.index);
-        self.index += 1;
-        Some(ret)
     }
 }
 
