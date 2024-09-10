@@ -146,6 +146,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             draw.triangle_colors_dual(&total_p);
+            draw.dual_wireframe(dv::WireframeParams {
+                width: dv::LineWidth::WorldUnits(0.01),
+                ..Default::default()
+            });
             draw.wireframe(dv::WireframeParams {
                 width: dv::LineWidth::WorldUnits(0.015),
                 ..Default::default()

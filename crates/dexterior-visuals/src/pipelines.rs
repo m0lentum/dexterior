@@ -240,17 +240,33 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
 
     /// Draw a wireframe model of the simulation mesh.
     pub fn wireframe(&mut self, params: WireframeParams) {
-        let params = LineParams {
-            width: params.width,
-            color: params.color,
-            joins: crate::JoinStyle::None,
-            caps: crate::CapsStyle::both(crate::CapStyle::Circle),
-        };
+        let params = params.line_params();
         // TODO: caching of static lines to avoid re-uploading this every time
         // (also same for axes)
-        let mut points: Vec<na::Vector3<f64>> = Vec::with_capacity(self.mesh.simplex_count::<1>());
-        for simplex in self.mesh.simplices::<1>() {
-            points.extend(simplex.vertices().map(|v| na::Vector3::new(v.x, v.y, 0.)));
+        let mut points: Vec<na::Vector3<f64>> =
+            Vec::with_capacity(self.mesh.simplex_count::<1>() * 2);
+        for edge in self.mesh.simplices::<1>() {
+            points.extend(edge.vertices().map(|v| na::Vector3::new(v.x, v.y, 0.)));
+        }
+        self.lines(params, LineDrawingMode::List, &points);
+    }
+
+    /// Draw a wireframe model of the dual mesh.
+    pub fn dual_wireframe(&mut self, params: WireframeParams) {
+        let params = params.line_params();
+        let mut points: Vec<na::Vector3<f64>> =
+            Vec::with_capacity(self.mesh.simplex_count::<1>() * 2);
+        for edge in self.mesh.simplices::<1>() {
+            let mut cob = edge.coboundary();
+            let p1 = cob.next().unwrap().1.circumcenter();
+            points.push(na::Vector3::new(p1.x, p1.y, 0.));
+            let p2 = match cob.next() {
+                Some((_, cob2)) => cob2.circumcenter(),
+                // boundary edges don't have a second coboundary simplex,
+                // instead the dual edge ends at the boundary
+                None => edge.circumcenter(),
+            };
+            points.push(na::Vector3::new(p2.x, p2.y, 0.));
         }
         self.lines(params, LineDrawingMode::List, &points);
     }
@@ -311,6 +327,17 @@ impl Default for WireframeParams {
         Self {
             width: crate::LineWidth::WorldUnits(0.01),
             color: palette::named::BLACK.into(),
+        }
+    }
+}
+
+impl WireframeParams {
+    fn line_params(&self) -> LineParams {
+        LineParams {
+            width: self.width,
+            color: self.color,
+            joins: crate::JoinStyle::None,
+            caps: crate::CapsStyle::both(crate::CapStyle::Circle),
         }
     }
 }
