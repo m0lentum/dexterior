@@ -59,7 +59,7 @@ For examples including visuals, see the examples in the [repo].
 # Meshes
 
 The core of a DEC discretization is the computation mesh,
-represented in the [`SimplicialMesh`][crate::SimplicialMesh] type.
+represented in the [`SimplicialMesh`] type.
 The type has one generic parameter representing the dimension of its embedding space
 and consequently the dimension of its highest-dimensional set of simplices.
 
@@ -78,9 +78,9 @@ Simulation variables in DEC-based simulations are expressed as cochains,
 which associate a value with every cell of a specific dimension
 in either the primal or the dual mesh.
 In this library, both the dimension and the association with the primal or dual mesh
-are expressed via generic parameters on [`SimplicialMesh`][crate::SimplicialMesh] methods.
+are expressed via generic parameters on [`SimplicialMesh`] methods.
 Dimension is expressed as a `usize` constant and the type of associated mesh
-as either [`Primal`][crate::Primal] or [`Dual`][crate::Dual].
+as either [`Primal`] or [`Dual`].
 
 Say we have a two-dimensional mesh,
 ```
@@ -101,7 +101,7 @@ let dual_0_cochain = mesh.new_zero_cochain::<0, Dual>();
 ## Operators
 
 The two most important operators in DEC are the exterior derivative and Hodge star,
-which are constructed from a [`SimplicialMesh`][crate::SimplicialMesh].
+which are constructed from a [`SimplicialMesh`].
 They use generics similar to cochains to ensure compatible inputs and outputs.
 
 ### Exterior derivative
@@ -186,7 +186,7 @@ most of these type annotations don't actually need to be written.
 
 When composing operators or applying them to cochains,
 the compatibility of the operands is checked at compile time.
-This is achieved via the [`Operator`][crate::operator::Operator] trait,
+This is achieved via the [`Operator`] trait,
 which tracks the input and output cochain types of an operator.
 For example, all of the following would fail to compile:
 ```compile_fail
@@ -280,4 +280,3 @@ pub use dexterior_core::*;
 
 #[cfg(feature = "visuals")]
 pub use dexterior_visuals as visuals;
-
