@@ -122,14 +122,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // absorbing boundary.
             // TODO: this could be done as an operator
             // if we had a way to make custom operators
-            for idx in absorbing_boundary.indices.ones() {
-                let edge = mesh.get_simplex_by_index::<1>(idx);
+            for edge in mesh.simplices_in(absorbing_boundary) {
                 let length = edge.volume();
                 // edges on the boundary always only border one volume element,
                 // and the adjacent dual vertex is the one corresponding to that element
                 let (orientation, coboundary) = edge.coboundary().next().unwrap();
-                state.q.values[idx] =
-                    -state.p.values[coboundary.index()] * length * orientation as f64;
+                state.q[edge] = -state.p[coboundary.dual()] * length * orientation as f64;
             }
 
             state.p += &ops.p_step * &state.q;

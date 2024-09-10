@@ -90,11 +90,12 @@ impl<D, P> PartialEq for CochainImpl<D, P> {
 }
 
 // Index with SimplexViews
-// (there's no equivalent view for dual cells yet
-// so this only works for primal simplices at the moment)
 
-impl<'a, D: na::DimName, const MESH_DIM: usize> std::ops::Index<crate::SimplexView<'a, D, MESH_DIM>>
+impl<'a, D, const MESH_DIM: usize> std::ops::Index<crate::SimplexView<'a, D, MESH_DIM>>
     for CochainImpl<D, crate::Primal>
+where
+    D: na::DimName,
+    na::Const<MESH_DIM>: na::DimNameSub<D>,
 {
     type Output = f64;
 
@@ -103,10 +104,37 @@ impl<'a, D: na::DimName, const MESH_DIM: usize> std::ops::Index<crate::SimplexVi
     }
 }
 
-impl<'a, D: na::DimName, const MESH_DIM: usize>
-    std::ops::IndexMut<crate::SimplexView<'a, D, MESH_DIM>> for CochainImpl<D, crate::Primal>
+impl<'a, D, const MESH_DIM: usize> std::ops::IndexMut<crate::SimplexView<'a, D, MESH_DIM>>
+    for CochainImpl<D, crate::Primal>
+where
+    D: na::DimName,
+    na::Const<MESH_DIM>: na::DimNameSub<D>,
 {
     fn index_mut(&mut self, simplex: crate::SimplexView<'a, D, MESH_DIM>) -> &mut Self::Output {
+        &mut self.values[simplex.index()]
+    }
+}
+
+impl<'a, D, const MESH_DIM: usize> std::ops::Index<crate::DualCellView<'a, D, MESH_DIM>>
+    for CochainImpl<D, crate::Dual>
+where
+    D: na::DimName,
+    na::Const<MESH_DIM>: na::DimNameSub<D>,
+{
+    type Output = f64;
+
+    fn index(&self, simplex: crate::DualCellView<'a, D, MESH_DIM>) -> &Self::Output {
+        &self.values[simplex.index()]
+    }
+}
+
+impl<'a, D, const MESH_DIM: usize> std::ops::IndexMut<crate::DualCellView<'a, D, MESH_DIM>>
+    for CochainImpl<D, crate::Dual>
+where
+    D: na::DimName,
+    na::Const<MESH_DIM>: na::DimNameSub<D>,
+{
+    fn index_mut(&mut self, simplex: crate::DualCellView<'a, D, MESH_DIM>) -> &mut Self::Output {
         &mut self.values[simplex.index()]
     }
 }
