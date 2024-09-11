@@ -210,7 +210,10 @@ pub struct SimplexIter<'a, const DIM: usize, const MESH_DIM: usize> {
     pub(super) idx_iter: IndexIter<'a>,
 }
 
-impl<'a, const DIM: usize, const MESH_DIM: usize> Iterator for SimplexIter<'a, DIM, MESH_DIM> {
+impl<'a, const DIM: usize, const MESH_DIM: usize> Iterator for SimplexIter<'a, DIM, MESH_DIM>
+where
+    na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+{
     type Item = SimplexView<'a, na::Const<DIM>, MESH_DIM>;
 
     fn next(&mut self) -> Option<Self::Item> {

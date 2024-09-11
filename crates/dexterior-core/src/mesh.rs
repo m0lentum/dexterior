@@ -163,7 +163,10 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     pub fn get_simplex_by_index<const DIM: usize>(
         &self,
         idx: usize,
-    ) -> SimplexView<'_, na::Const<DIM>, MESH_DIM> {
+    ) -> SimplexView<'_, na::Const<DIM>, MESH_DIM>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
         self.get_simplex_by_index_impl::<na::Const<DIM>>(idx)
     }
 
@@ -188,7 +191,10 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     }
 
     /// Iterate over all `DIM`-dimensional simplices in the mesh.
-    pub fn simplices<const DIM: usize>(&self) -> SimplexIter<'_, DIM, MESH_DIM> {
+    pub fn simplices<const DIM: usize>(&self) -> SimplexIter<'_, DIM, MESH_DIM>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
         SimplexIter {
             mesh: self,
             idx_iter: IndexIter::All(0..self.simplices[DIM].len()),
@@ -199,7 +205,10 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     pub fn simplices_in<'me, 'sub: 'me, const DIM: usize>(
         &'me self,
         subset: SubsetRef<'sub, na::Const<DIM>, Primal>,
-    ) -> SimplexIter<'me, DIM, MESH_DIM> {
+    ) -> SimplexIter<'me, DIM, MESH_DIM>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
         SimplexIter {
             mesh: self,
             idx_iter: IndexIter::Subset(subset.indices.ones()),
@@ -207,7 +216,10 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     }
 
     /// Iterate over all `DIM`-dimensional dual cells in the mesh.
-    pub fn dual_cells<const DIM: usize>(&self) -> DualCellIter<'_, DIM, MESH_DIM> {
+    pub fn dual_cells<const DIM: usize>(&self) -> DualCellIter<'_, DIM, MESH_DIM>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
         DualCellIter {
             mesh: self,
             idx_iter: IndexIter::All(0..self.simplices[MESH_DIM - DIM].len()),
@@ -476,7 +488,9 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         &mut self,
         name: impl Into<String>,
         indices: impl Iterator<Item = usize>,
-    ) {
+    ) where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
         let bits = fb::FixedBitSet::from_iter(indices);
         self.simplices[DIM].custom_subsets.insert(name.into(), bits);
     }
@@ -490,7 +504,9 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         &mut self,
         name: impl Into<String>,
         pred: impl Fn(SimplexView<na::Const<DIM>, MESH_DIM>) -> bool,
-    ) {
+    ) where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
         let bits: fb::FixedBitSet = self
             .simplices::<DIM>()
             .enumerate()
