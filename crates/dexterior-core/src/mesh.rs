@@ -278,6 +278,42 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// Use with extreme caution.
     pub fn integrate_cochain<const DIM: usize, Primality, IntgFn>(
         &self,
+        integrate: IntgFn,
+    ) -> crate::Cochain<DIM, Primality>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        Primality: MeshPrimality,
+        IntgFn: FnMut(&[na::SVector<f64, MESH_DIM>]) -> f64,
+    {
+        let cell_count = if Primality::IS_PRIMAL {
+            self.simplex_count_dyn(DIM)
+        } else {
+            self.simplex_count_dyn(MESH_DIM - DIM)
+        };
+        self.integrate_cochain_impl(IndexIter::All(0..cell_count), integrate)
+    }
+
+    /// Create a cochain by integrating over cells,
+    /// only performing the integration for the given subset.
+    ///
+    /// This currently has some severe limitations in its usefulness.
+    /// See [`integrate_cochain`][Self::integrate_cochain] for details.
+    pub fn integrate_cochain_partial<const DIM: usize, Primality, IntgFn>(
+        &self,
+        subset: SubsetRef<'_, na::Const<DIM>, Primality>,
+        integrate: IntgFn,
+    ) -> crate::Cochain<DIM, Primality>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        Primality: MeshPrimality,
+        IntgFn: FnMut(&[na::SVector<f64, MESH_DIM>]) -> f64,
+    {
+        self.integrate_cochain_impl(IndexIter::Subset(subset.indices.ones()), integrate)
+    }
+
+    fn integrate_cochain_impl<const DIM: usize, Primality, IntgFn>(
+        &self,
+        idx_iter: IndexIter,
         mut integrate: IntgFn,
     ) -> crate::Cochain<DIM, Primality>
     where
@@ -290,17 +326,14 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         match (DIM, Primality::IS_PRIMAL) {
             // special cases for 0-simplices since they don't need to be collected into a slice
             (0, true) => {
-                for (vertex, c_val) in izip!(self.vertices.iter(), c.values.iter_mut()) {
-                    *c_val = integrate(&[*vertex]);
+                for idx in idx_iter {
+                    c.values[idx] = integrate(&[self.vertices[idx]]);
                 }
             }
             (0, false) => {
                 // dual 0-simplices are the circumcenters of highest-dimensional simplices
-                for (circumcenter, c_val) in izip!(
-                    self.simplices[MESH_DIM].circumcenters.iter(),
-                    c.values.iter_mut()
-                ) {
-                    *c_val = integrate(&[*circumcenter]);
+                for idx in idx_iter {
+                    c.values[idx] = integrate(&[self.simplices[MESH_DIM].circumcenters[idx]]);
                 }
             }
             // higher-dimensional simplices
@@ -311,9 +344,10 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                 // (their placement in the source data is generally not contiguous)
                 let mut vertices = Vec::new();
 
-                for (simplex, c_val) in izip!(self.simplices::<DIM>(), c.values.iter_mut()) {
+                for idx in idx_iter {
+                    let simplex = self.get_simplex_by_index::<DIM>(idx);
                     vertices.extend(simplex.vertices());
-                    *c_val = integrate(&vertices);
+                    c.values[idx] = integrate(&vertices);
                     vertices.clear();
                 }
             }
@@ -323,12 +357,8 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                 // the dual cell is composed of circumcenters of all coboundary simplices
                 // TODO: this is not true -
                 // dual cell of a k-simplex is bounded by the circumcenters of (N-k)-simplices
-                for (simplex_idx, (cob_row, c_val)) in izip!(
-                    self.simplices[primal_dim].coboundary_map.row_iter(),
-                    c.values.iter_mut()
-                )
-                .enumerate()
-                {
+                for idx in idx_iter {
+                    let cob_row = self.simplices[primal_dim].coboundary_map.row(idx);
                     for &cob_idx in cob_row.col_indices() {
                         let cob_circumcenter =
                             self.simplices[primal_dim + 1].circumcenters[cob_idx];
@@ -338,10 +368,10 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                     // as they end on the boundary `MESH_DIM - 1`-simplex
                     // instead of connecting two `MESH_DIM`-simplices like the rest
                     if DIM == 1 && vertices.len() <= 1 {
-                        vertices.push(self.simplices[primal_dim].circumcenters[simplex_idx])
+                        vertices.push(self.simplices[primal_dim].circumcenters[idx])
                     }
 
-                    *c_val = integrate(&vertices);
+                    c.values[idx] = integrate(&vertices);
                     vertices.clear();
                 }
             }
