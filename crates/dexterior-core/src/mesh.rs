@@ -121,6 +121,8 @@ impl<const DIM: usize> SimplexCollection<DIM> {
 /// Used to restrict operations to certain parts of the mesh,
 /// e.g. with [`ComposedOperator::exclude_subset`
 /// ][crate::operator::ComposedOperator::exclude_subset].
+///
+/// You can iterate over the simplices in this set with [`SimplicialMesh::simplices_in`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SubsetRef<'a, Dimension, Primality> {
     /// A bitset containing the indices of simplices present in the subset.
@@ -193,7 +195,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
     }
 
-    /// Iterate over the set of `DIM`-simplices in the given subset.
+    /// Iterate over the `DIM`-simplices in the given subset.
     pub fn simplices_in<'me, 'sub: 'me, const DIM: usize>(
         &'me self,
         subset: SubsetRef<'sub, na::Const<DIM>, Primal>,
@@ -619,10 +621,6 @@ impl MeshPrimality for Dual {
     const IS_PRIMAL: bool = false;
     type Opposite = Primal;
 }
-
-//
-// views and iterators
-//
 
 #[cfg(test)]
 mod tests {
