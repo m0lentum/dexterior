@@ -19,3 +19,5 @@ pub mod operator;
 pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Op, Operator};
 
 pub mod gmsh;
+
+pub mod quadrature;

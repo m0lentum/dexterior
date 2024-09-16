@@ -52,22 +52,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wave_vector = wavenumber * *wave_dir;
     let wave_angular_vel = wavenumber * wave_speed;
 
-    let eval_wave_pressure = |t: f64, pos: &na::Vector2<f64>| -> f64 {
-        wave_angular_vel * f64::sin(wave_angular_vel * t - wave_vector.dot(pos))
+    let eval_wave_pressure = |t: f64, pos: na::Vector2<f64>| -> f64 {
+        wave_angular_vel * f64::sin(wave_angular_vel * t - wave_vector.dot(&pos))
     };
-    // analytic form of the flux of the wave integrated over a mesh edge.
-    // TODO: add numerical integration quadratures to do this more easily
-    let eval_wave_flux = |t: f64, p: &[na::Vector2<f64>]| -> f64 {
-        let kdotp = wave_vector.dot(&p[0]);
-        let l = p[1] - p[0];
-        let kdotl = wave_vector.dot(&l);
-        let kdotn = wave_vector.dot(&na::Vector2::new(l.y, -l.x));
-        let wave_angle = wave_angular_vel * t;
-        if kdotl.abs() < 1e-5 {
-            -kdotn * f64::sin(wave_angle - kdotp)
-        } else {
-            (kdotn / kdotl) * (f64::cos(wave_angle - kdotp) - f64::cos(wave_angle - kdotp - kdotl))
-        }
+    let eval_wave_flux = |t: f64, pos: na::Vector2<f64>, dir: na::Unit<na::Vector2<f64>>| -> f64 {
+        let normal = na::Vector2::new(dir.y, -dir.x);
+        let vel = -wave_vector * f64::sin(wave_angular_vel * t - wave_vector.dot(&pos));
+        vel.dot(&normal)
     };
 
     let ops = Ops {
@@ -76,8 +67,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let state = State {
-        p: mesh.integrate_cochain(|v| eval_wave_pressure(0., &v[0])),
-        q: mesh.integrate_cochain(|v| eval_wave_flux(dt / 2., v)),
+        p: mesh.integrate_cochain(dex::quadrature::Pointwise(|v| eval_wave_pressure(0., v))),
+        q: mesh.integrate_cochain(dex::quadrature::GaussLegendre6(|v, d| {
+            eval_wave_flux(dt / 2., v, d)
+        })),
         t: 0.,
     };
 
@@ -96,10 +89,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.t += dt;
 
             state.q += &ops.q_step * &state.p;
-            // TODO: option to integrate only a subset of the cochain
-            let boundary_wave: Flux = mesh.integrate_cochain(|v| eval_wave_flux(t_at_q, v));
-            for idx in mesh.boundary::<1>().indices.ones() {
-                state.q.values[idx] = boundary_wave.values[idx];
+            let boundary_wave: Flux = mesh.integrate_cochain_partial(
+                mesh.boundary(),
+                dex::quadrature::GaussLegendre6(|v, d| eval_wave_flux(t_at_q, v, d)),
+            );
+            for edge in mesh.simplices_in(mesh.boundary()) {
+                state.q[edge] = boundary_wave[edge];
             }
 
             state.p += &ops.p_step * &state.q;

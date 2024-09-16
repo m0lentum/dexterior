@@ -22,6 +22,7 @@ the following code implements a simple acoustic wave simulation:
 
 ```
 use dexterior as dex;
+use nalgebra::Vector2;
 
 // type aliases for simulation variables ease readability
 type Pressure = dex::Cochain<0, dex::Primal>;
@@ -42,9 +43,9 @@ let p_step: dex::Op<Velocity, Pressure> =
 let v_step = dt * mesh.d();
 
 // integrate an initial state function into discrete cochains
-let mut p: Pressure = mesh.integrate_cochain(|v| {
-    f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)
-});
+let mut p: Pressure = mesh.integrate_cochain(dex::quadrature::Pointwise(
+    |v: Vector2<f64>| f64::sin(3.0 * v.x) * f64::sin(2.0 * v.y)
+));
 let mut v: Velocity = mesh.new_zero_cochain();
 
 // step the simulation forward in time
@@ -88,15 +89,19 @@ Say we have a two-dimensional mesh,
 let mesh: SimplicialMesh<2> = some_mesh();
 ```
 The following code constructs two cochains,
-the first associated with primal 1-simplices
-and the second with dual 0-simplices (i.e. vertices), on this mesh,
-with zeroes for all elements:
+the first associated with primal 1-simplices (i.e. edges of triangles)
+and the second with dual 0-simplices (i.e. vertices at the circumcenters of triangles),
+on this mesh, with zeroes for all elements:
 ```
 # use dexterior::{mesh::tiny_mesh_2d, Primal, Dual};
 # let mesh = tiny_mesh_2d();
 let primal_1_cochain = mesh.new_zero_cochain::<1, Primal>();
 let dual_0_cochain = mesh.new_zero_cochain::<0, Dual>();
 ```
+To construct cochains with nonzero values
+by integrating a function over mesh cells,
+see [`SimplicialMesh::integrate_cochain`]
+and the [`quadrature`] module.
 
 ## Operators
 

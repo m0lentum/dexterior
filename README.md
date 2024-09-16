@@ -35,6 +35,7 @@ the following code implements a simple acoustic wave simulation:
 
 ```rust
 use dexterior as dex;
+use nalgebra::Vector2;
 
 // type aliases for simulation variables ease readability
 type Pressure = dex::Cochain<0, dex::Primal>;
@@ -55,9 +56,9 @@ let p_step: dex::Op<Velocity, Pressure> =
 let v_step = dt * mesh.d();
 
 // integrate an initial state function into discrete cochains
-let mut p: Pressure = mesh.integrate_cochain(|v| {
-    f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)
-});
+let mut p: Pressure = mesh.integrate_cochain(dex::quadrature::Pointwise(
+    |v: Vector2<f64>| f64::sin(3.0 * v.x) * f64::sin(2.0 * v.y)
+));
 let mut v: Velocity = mesh.new_zero_cochain();
 
 // step the simulation forward in time

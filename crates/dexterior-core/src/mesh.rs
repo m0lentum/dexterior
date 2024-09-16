@@ -21,6 +21,8 @@ use nalgebra_sparse as nas;
 use itertools::izip;
 use std::{cell::OnceCell, collections::HashMap, rc::Rc};
 
+use crate::quadrature::Quadrature;
+
 /// A DEC mesh where the primal cells are all simplices
 /// (points, line segments, triangles, tetrahedra etc).
 #[derive(Clone, Debug)]
@@ -269,17 +271,9 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         crate::Cochain::zeros(self.simplex_count_dyn(primal_dim))
     }
 
-    /// Create a cochain with values supplied by a function
-    /// that takes the vertices of a cell and produces a scalar.
+    /// Create a cochain by integrating a function over cells of the mesh.
     ///
-    /// This does not integrate a function automatically;
-    /// the user is expected to compute the integral over a simplex themselves.
-    /// There are plans to implement quadratures for numerical integration
-    /// that can be used with this in `dexterior`, but for now it must be done by hand.
-    ///
-    /// For primal simplices, the number of vertices in the slice
-    /// given to the integration function is guaranteed to be `DIM + 1`.
-    /// For dual cells of dimension 2 and above, the number can vary.
+    /// See the [`quadrature`][crate::quadrature] module for available options.
     ///
     /// NOTE: The only cases of this that are fully implemented
     /// are primal 0- and 1-simplices and dual 0-cells.
@@ -288,21 +282,20 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// that may not match the orientation of the cell.
     /// It also hasn't been tested so correctness isn't guaranteed.
     /// Use with extreme caution.
-    pub fn integrate_cochain<const DIM: usize, Primality, IntgFn>(
+    pub fn integrate_cochain<const DIM: usize, Primality>(
         &self,
-        integrate: IntgFn,
+        quadrature: impl Quadrature<DIM, MESH_DIM>,
     ) -> crate::Cochain<DIM, Primality>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,
-        IntgFn: FnMut(&[na::SVector<f64, MESH_DIM>]) -> f64,
     {
         let cell_count = if Primality::IS_PRIMAL {
             self.simplex_count_dyn(DIM)
         } else {
             self.simplex_count_dyn(MESH_DIM - DIM)
         };
-        self.integrate_cochain_impl(IndexIter::All(0..cell_count), integrate)
+        self.integrate_cochain_impl(IndexIter::All(0..cell_count), quadrature)
     }
 
     /// Create a cochain by integrating over cells,
@@ -310,28 +303,26 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     ///
     /// This currently has some severe limitations in its usefulness.
     /// See [`integrate_cochain`][Self::integrate_cochain] for details.
-    pub fn integrate_cochain_partial<const DIM: usize, Primality, IntgFn>(
+    pub fn integrate_cochain_partial<const DIM: usize, Primality>(
         &self,
         subset: SubsetRef<'_, na::Const<DIM>, Primality>,
-        integrate: IntgFn,
+        quadrature: impl Quadrature<DIM, MESH_DIM>,
     ) -> crate::Cochain<DIM, Primality>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,
-        IntgFn: FnMut(&[na::SVector<f64, MESH_DIM>]) -> f64,
     {
-        self.integrate_cochain_impl(IndexIter::Subset(subset.indices.ones()), integrate)
+        self.integrate_cochain_impl(IndexIter::Subset(subset.indices.ones()), quadrature)
     }
 
-    fn integrate_cochain_impl<const DIM: usize, Primality, IntgFn>(
+    fn integrate_cochain_impl<const DIM: usize, Primality>(
         &self,
         idx_iter: IndexIter,
-        mut integrate: IntgFn,
+        quadrature: impl Quadrature<DIM, MESH_DIM>,
     ) -> crate::Cochain<DIM, Primality>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,
-        IntgFn: FnMut(&[na::SVector<f64, MESH_DIM>]) -> f64,
     {
         let mut c = self.new_zero_cochain::<DIM, Primality>();
 
@@ -339,13 +330,14 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             // special cases for 0-simplices since they don't need to be collected into a slice
             (0, true) => {
                 for idx in idx_iter {
-                    c.values[idx] = integrate(&[self.vertices[idx]]);
+                    c.values[idx] = quadrature.compute(&[self.vertices[idx]]);
                 }
             }
             (0, false) => {
                 // dual 0-simplices are the circumcenters of highest-dimensional simplices
                 for idx in idx_iter {
-                    c.values[idx] = integrate(&[self.simplices[MESH_DIM].circumcenters[idx]]);
+                    c.values[idx] =
+                        quadrature.compute(&[self.simplices[MESH_DIM].circumcenters[idx]]);
                 }
             }
             // higher-dimensional simplices
@@ -359,7 +351,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                 for idx in idx_iter {
                     let simplex = self.get_simplex_by_index::<DIM>(idx);
                     vertices.extend(simplex.vertices());
-                    c.values[idx] = integrate(&vertices);
+                    c.values[idx] = quadrature.compute(&vertices);
                     vertices.clear();
                 }
             }
@@ -383,7 +375,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                         vertices.push(self.simplices[primal_dim].circumcenters[idx])
                     }
 
-                    c.values[idx] = integrate(&vertices);
+                    c.values[idx] = quadrature.compute(&vertices);
                     vertices.clear();
                 }
             }

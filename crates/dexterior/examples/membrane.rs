@@ -63,7 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // this is zero everywhere on the boundary of the [0, pi] x [0, pi] square
         // (fulfilling the Dirichlet condition)
         // as long as the coefficients on v[0].x and v[0].y are integers
-        p: mesh.integrate_cochain(|v| f64::sin(3.0 * v[0].x) * f64::sin(2.0 * v[0].y)),
+        p: mesh.integrate_cochain(dex::quadrature::Pointwise(|v| {
+            // something funky about nalgebra types prevents us from using v.x and v.y here :/
+            f64::sin(3.0 * v[0]) * f64::sin(2.0 * v[1])
+        })),
         v: mesh.new_zero_cochain(),
     };
 
