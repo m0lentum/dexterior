@@ -1,6 +1,6 @@
 [package]
 name = "dexterior"
-version = "0.1.1"
+version = "0.2.0"
 description = "Discrete Exterior Calculus toolkit"
 keywords = ["dec", "simulation"]
 categories = ["mathematics", "science"]
@@ -11,8 +11,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dexterior-core = { path = "../dexterior-core", version = "0.1.0" }
-dexterior-visuals = { path = "../dexterior-visuals", version = "0.1.0", optional = true }
+dexterior-core = { path = "../dexterior-core", version = "0.2.0" }
+dexterior-visuals = { path = "../dexterior-visuals", version = "0.2.0", optional = true }
 nalgebra.workspace = true
 
 [features]

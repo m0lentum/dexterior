@@ -1,6 +1,6 @@
 [package]
 name = "dexterior-visuals"
-version = "0.1.0"
+version = "0.2.0"
 description = "Real-time visuals for dexterior, a Discrete Exterior Calculus toolkit"
 authors.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dexterior-core = { path = "../dexterior-core", version = "0.1.0" }
+dexterior-core = { path = "../dexterior-core", version = "0.2.0" }
 
 itertools.workspace = true
 nalgebra.workspace = true
