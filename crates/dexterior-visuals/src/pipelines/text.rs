@@ -15,14 +15,24 @@ pub(crate) struct TextPipeline {
     renderer: gh::TextRenderer,
 }
 
+/// Parameters for displaying text.
 #[derive(Clone, Copy, Debug)]
 pub struct TextParams<'a, const DIM: usize> {
+    /// Content of the text to be displayed. Default: "".
     pub text: &'a str,
+    /// Position of the anchor point in simulation space. Default: origin.
     pub position: na::SVector<f64, DIM>,
+    /// Placement of the anchor point relative to the text. Default: center.
     pub anchor: TextAnchor,
+    /// Fixed width for the text area in pixels. Default: None.
+    /// If not given, the text is laid out based on its own dimensions.
     pub area_width: Option<f32>,
+    /// Fixed height for the text area in pixels. Default: None.
+    /// If not given, the text is laid out based on its own dimensions.
     pub area_height: Option<f32>,
+    /// Font size of the text. Default: 30.0
     pub font_size: f32,
+    /// Line height of the text. Default: 42.0
     pub line_height: f32,
 }
 

@@ -318,6 +318,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
         );
     }
 
+    /// Draw a custom piece of text.
     pub fn text<const POS_DIM: usize>(&mut self, text: TextParams<'_, POS_DIM>) {
         let buf = self.rend.text_pl.create_buffer(text);
         self.rend.text_pl.draw(self.ctx, self.camera, &[&buf]);
