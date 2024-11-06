@@ -7,6 +7,8 @@ use crate::{
     render_window::{ActiveRenderWindow, RenderContext},
 };
 
+pub use gh::Color as TextColor;
+
 pub(crate) struct TextPipeline {
     font_system: gh::FontSystem,
     swash_cache: gh::SwashCache,
@@ -30,10 +32,12 @@ pub struct TextParams<'a, const DIM: usize> {
     /// Fixed height for the text area in pixels. Default: None.
     /// If not given, the text is laid out based on its own dimensions.
     pub area_height: Option<f32>,
-    /// Font size of the text. Default: 30.0
+    /// Font size of the text. Default: 30.
     pub font_size: f32,
-    /// Line height of the text. Default: 42.0
+    /// Line height of the text. Default: 42.
     pub line_height: f32,
+    /// Color of the text. Default: black.
+    pub color: TextColor,
 }
 
 impl<'a, const DIM: usize> Default for TextParams<'a, DIM> {
@@ -46,6 +50,7 @@ impl<'a, const DIM: usize> Default for TextParams<'a, DIM> {
             area_height: None,
             font_size: 30.,
             line_height: 42.,
+            color: TextColor::rgb(0, 0, 0),
         }
     }
 }
@@ -78,6 +83,7 @@ pub(crate) struct TextBuffer {
     buffer: gh::Buffer,
     position: na::Vector3<f32>,
     anchor: TextAnchor,
+    color: TextColor,
 }
 
 impl TextPipeline {
@@ -132,6 +138,7 @@ impl TextPipeline {
             buffer,
             position,
             anchor: params.anchor,
+            color: params.color,
         }
     }
 
@@ -204,8 +211,7 @@ impl TextPipeline {
                     right: (top_left_pixel.x + width + 1.) as i32,
                     bottom: (top_left_pixel.y + height + 1.) as i32,
                 },
-                // TODO configurable color
-                default_color: gh::Color::rgb(0, 0, 0),
+                default_color: buf.color,
                 custom_glyphs: &[],
             }
         });

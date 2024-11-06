@@ -93,6 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 text: "test text\nχξΔ",
                 position: mesh.vertices()[2],
                 anchor: dv::TextAnchor::BottomMid,
+                color: dv::TextColor::rgb(150, 0, 0),
                 ..Default::default()
             });
         },
