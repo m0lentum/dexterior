@@ -583,6 +583,7 @@ where
             ctx: &mut ctx,
             rend: renderer,
             mesh: self.anim.mesh,
+            camera: &self.camera,
         };
 
         let interpolated_state = State::interpolate(

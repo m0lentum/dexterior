@@ -29,6 +29,7 @@ pub(crate) mod pipelines;
 pub use pipelines::{
     axes::AxesParams,
     line::{CapStyle, CapsStyle, JoinStyle, LineDrawingMode, LineParams, LineWidth},
+    text::{TextAnchor, TextParams},
     ArrowParams, Painter, WireframeParams,
 };
 

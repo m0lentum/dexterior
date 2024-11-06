@@ -18,6 +18,7 @@ bytemuck = { version = "1.14.0", features = ["derive"] }
 encase = { version = "0.6.1", features = ["nalgebra"] }
 enterpolation = "0.2.1"
 futures = "0.3.29"
+glyphon = "0.6.0"
 palette = "0.7.3"
 winit = "0.30.5"
 web-time = "0.1"

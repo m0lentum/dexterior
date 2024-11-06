@@ -10,13 +10,19 @@ use axes::AxesParams;
 mod vertex_colors;
 use vertex_colors::{VertexColorVariant, VertexColorsPipeline};
 
+pub(crate) mod text;
+use text::{TextParams, TextPipeline};
+
 //
 
 use itertools::izip;
 use nalgebra as na;
 use std::{cell::OnceCell, collections::HashMap};
 
-use crate::render_window::{ActiveRenderWindow, RenderContext};
+use crate::{
+    camera::Camera,
+    render_window::{ActiveRenderWindow, RenderContext},
+};
 use dexterior_core as dex;
 
 pub(crate) struct Renderer {
@@ -24,6 +30,7 @@ pub(crate) struct Renderer {
     gradient_pl: OnceCell<VertexColorsPipeline>,
     flat_tri_pl: OnceCell<VertexColorsPipeline>,
     line_pl: LinePipeline,
+    text_pl: TextPipeline,
     // some GPU resources are shared between different pipelines
     pub resources: SharedResources,
     // map from names to indices in the color map collection
@@ -74,6 +81,7 @@ impl Renderer {
             gradient_pl: OnceCell::new(),
             flat_tri_pl: OnceCell::new(),
             line_pl: LinePipeline::new(window, &resources),
+            text_pl: TextPipeline::new(window),
             resources,
             color_map_names,
             state: RendererState {
@@ -106,6 +114,7 @@ pub struct Painter<'a, 'ctx: 'a> {
     pub(crate) ctx: &'a mut RenderContext<'ctx>,
     pub(crate) rend: &'a mut Renderer,
     pub(crate) mesh: &'a dex::SimplicialMesh<2>,
+    pub(crate) camera: &'a Camera,
 }
 
 impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
@@ -307,6 +316,11 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
             mode,
             &points,
         );
+    }
+
+    pub fn text<const POS_DIM: usize>(&mut self, text: TextParams<'_, POS_DIM>) {
+        let buf = self.rend.text_pl.create_buffer(text);
+        self.rend.text_pl.draw(self.ctx, self.camera, &[&buf]);
     }
 }
 

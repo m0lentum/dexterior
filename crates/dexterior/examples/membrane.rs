@@ -88,6 +88,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             draw.wireframe(dv::WireframeParams::default());
             draw.velocity_arrows(&state.v, dv::ArrowParams::default());
             draw.axes_2d(dv::AxesParams::default());
+
+            draw.text(dv::TextParams {
+                text: "test text\nχξΔ",
+                position: mesh.vertices()[2],
+                anchor: dv::TextAnchor::BottomMid,
+                ..Default::default()
+            });
         },
     })?;
 
