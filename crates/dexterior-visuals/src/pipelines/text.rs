@@ -151,7 +151,7 @@ impl TextPipeline {
     }
 
     /// Draw a slice of text areas in one draw call.
-    pub fn draw(&mut self, ctx: &mut RenderContext, camera: &Camera, buffers: &[&TextBuffer]) {
+    pub fn draw(&mut self, ctx: &mut RenderContext, camera: &Camera, buffers: &[TextBuffer]) {
         self.viewport.update(
             ctx.queue,
             gh::Resolution {
