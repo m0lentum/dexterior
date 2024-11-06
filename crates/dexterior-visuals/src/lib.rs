@@ -37,4 +37,5 @@ mod render_window;
 #[doc(inline)]
 pub use render_window::{RenderWindow, WindowParams};
 
+pub use glyphon;
 pub use palette;

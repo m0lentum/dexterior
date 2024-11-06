@@ -38,6 +38,11 @@ pub struct TextParams<'a, const DIM: usize> {
     pub line_height: f32,
     /// Color of the text. Default: black.
     pub color: TextColor,
+    /// Set of cosmic-text attributes for the text buffer.
+    /// Default: cosmic-text defaults with sans-serif font family.
+    ///
+    /// Types for the fields can be accessed through the library's re-export of [`glyphon`].
+    pub attrs: gh::Attrs<'a>,
 }
 
 impl<'a, const DIM: usize> Default for TextParams<'a, DIM> {
@@ -51,6 +56,7 @@ impl<'a, const DIM: usize> Default for TextParams<'a, DIM> {
             font_size: 30.,
             line_height: 42.,
             color: TextColor::rgb(0, 0, 0),
+            attrs: gh::Attrs::new().family(gh::Family::SansSerif),
         }
     }
 }
@@ -110,6 +116,8 @@ impl TextPipeline {
         }
     }
 
+    /// Create a renderable text buffer.
+    /// This can be cached if desired.
     pub fn create_buffer<const DIM: usize>(&mut self, params: TextParams<'_, DIM>) -> TextBuffer {
         let mut buffer = gh::Buffer::new(
             &mut self.font_system,
@@ -123,7 +131,7 @@ impl TextPipeline {
         buffer.set_text(
             &mut self.font_system,
             params.text,
-            gh::Attrs::new().family(gh::Family::SansSerif),
+            params.attrs,
             gh::Shaping::Advanced,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
@@ -142,6 +150,7 @@ impl TextPipeline {
         }
     }
 
+    /// Draw a slice of text areas in one draw call.
     pub fn draw(&mut self, ctx: &mut RenderContext, camera: &Camera, buffers: &[&TextBuffer]) {
         self.viewport.update(
             ctx.queue,

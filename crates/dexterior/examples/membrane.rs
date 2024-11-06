@@ -94,6 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 position: mesh.vertices()[2],
                 anchor: dv::TextAnchor::BottomMid,
                 color: dv::TextColor::rgb(150, 0, 0),
+                attrs: dv::glyphon::Attrs::new().style(dv::glyphon::Style::Italic),
                 ..Default::default()
             });
         },
