@@ -21,7 +21,10 @@ use nalgebra_sparse as nas;
 use itertools::izip;
 use std::{cell::OnceCell, collections::HashMap, rc::Rc};
 
-use crate::quadrature::Quadrature;
+use crate::{
+    cochain::{Cochain, CochainImpl},
+    quadrature::Quadrature,
+};
 
 /// A DEC mesh where the primal cells are all simplices
 /// (points, line segments, triangles, tetrahedra etc).
@@ -457,6 +460,85 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         crate::HodgeStar::new(diag)
     }
 
+    /// Compute a discrete wedge product between two primal cochains.
+    ///
+    /// The output is a primal cochain whose dimension
+    /// is the sum of the input cochains' dimensions.
+    /// This method is only defined if the output dimension
+    /// is less than or equal to the mesh dimension.
+    ///
+    /// There are several possible ways to define a discrete wedge product.
+    /// We use the metric-independent definition given on page 74, eq. 7.2.1
+    /// of Hirani (2003). Discrete Exterior Calculus.
+    pub fn wedge<const D1: usize, const D2: usize>(
+        &self,
+        c1: &Cochain<D1, Primal>,
+        c2: &Cochain<D2, Primal>,
+    ) -> CochainImpl<na::DimNameSum<na::Const<D1>, na::Const<D2>>, Primal>
+    where
+        na::Const<D1>: na::DimNameAdd<na::Const<D2>>,
+        na::Const<MESH_DIM>: na::DimNameSub<na::DimNameSum<na::Const<D1>, na::Const<D2>>>,
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<D1>>,
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<D2>>,
+    {
+        let ret_dim: usize = D1 + D2;
+        let ret_simplex_count = self.simplex_count_dyn(ret_dim);
+        let mut ret = CochainImpl::zeros(ret_simplex_count);
+
+        let permutations = crate::permutation::Permutations::new(ret_dim + 1);
+        // scaling factor 1/(k+l+1)! in the formula
+        let scaling = 1. / (1..=(D1 + D2 + 1)).product::<usize>() as f64;
+
+        // buffers to hold boundary simplices' vertex indices,
+        // needed because we must sort them to easily find the corresponding simplex
+        let mut left_indices: Vec<usize> = Vec::with_capacity(D1 + 1);
+        let mut right_indices: Vec<usize> = Vec::with_capacity(D2 + 1);
+
+        // neat bit of type inference for the dimension of simplex
+        // from the fact that we use the simplex to assign to `ret`
+        for simplex in (0..ret_simplex_count).map(|i| self.get_simplex_by_index_impl(i)) {
+            let mut sum = 0.;
+            for perm in permutations.iter() {
+                // we need to find the k- and l-dimensional boundary simplices
+                // corresponding to each permutation
+                // as well as their orientation relative to the permutation
+                // to get the right values out of the cochains
+
+                left_indices.extend(perm.indices[..=D1].iter().map(|i| simplex.indices[*i]));
+                right_indices.extend(perm.indices[D1..].iter().map(|i| simplex.indices[*i]));
+                let left_parity = crate::permutation::get_parity(&left_indices) as f64;
+                let right_parity = crate::permutation::get_parity(&right_indices) as f64;
+
+                // sort the indices to find the corresponding simplices using find_simplex_index,
+                // and thus the cochain values we need.
+                // this works because all simplices have their indices in ascending order.
+                // we could also sidestep the hashmap lookup in find_simplex_index
+                // by recursively iterating through boundaries
+                // but this seems easier and likely similar in terms of performance
+                left_indices.sort();
+                right_indices.sort();
+                let left_simplex = self
+                    .find_simplex_index_impl::<na::Const<D1>>(&left_indices)
+                    .unwrap();
+                let right_simplex = self
+                    .find_simplex_index_impl::<na::Const<D2>>(&right_indices)
+                    .unwrap();
+
+                sum += perm.sign as f64
+                    * (left_parity
+                        * c1.values[left_simplex]
+                        * right_parity
+                        * c2.values[right_simplex]);
+
+                left_indices.clear();
+                right_indices.clear();
+            }
+            ret[simplex] = scaling * sum;
+        }
+
+        ret
+    }
+
     /// Get the set of `DIM`-simplices on the mesh boundary.
     ///
     /// This method does not exist for the highest-dimensional simplices in the mesh,
@@ -545,7 +627,20 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
     {
-        let simplices = &self.simplices[DIM];
+        self.find_simplex_index_impl(indices)
+    }
+
+    fn find_simplex_index_impl<Dim>(&self, indices: &[usize]) -> Option<usize>
+    where
+        Dim: na::DimName,
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
+    {
+        // special case for 0-simplices since this is just the vertex index directly
+        if Dim::USIZE == 0 {
+            return Some(indices[0]);
+        }
+
+        let simplices = &self.simplices[Dim::USIZE];
         let index_map = simplices.index_map.get_or_init(|| {
             simplices
                 .indices
@@ -664,6 +759,7 @@ impl MeshPrimality for Dual {
 mod tests {
     use super::*;
 
+    /// Check that subset creation works as expected.
     #[test]
     fn create_subsets() {
         let mut mesh = tiny_mesh_3d();
@@ -676,5 +772,71 @@ mod tests {
         let pred_subset = mesh.get_subset::<1>("predicate").unwrap();
         assert_eq!(idx_subset.indices, pred_subset.indices);
         itertools::assert_equal(idx_subset.indices.ones(), indices.iter().cloned());
+    }
+
+    /// Test that the discrete wedge product gives expected results.
+    #[test]
+    fn wedge() {
+        let mesh_2d = tiny_mesh_2d();
+
+        // check with cochains where each value
+        // is an integer equal to the simplex index
+        let mut c0 = mesh_2d.new_zero_cochain::<0, Primal>();
+        let mut c1 = mesh_2d.new_zero_cochain::<1, Primal>();
+        // need a second 1-cochain different from the first
+        // because a cochain wedged with itself is always zero
+        let mut c1_2 = mesh_2d.new_zero_cochain::<1, Primal>();
+        let mut c2 = mesh_2d.new_zero_cochain::<2, Primal>();
+
+        for vals in [
+            c0.values.iter_mut(),
+            c1.values.iter_mut(),
+            c2.values.iter_mut(),
+        ] {
+            for (i, v) in vals.enumerate() {
+                *v = i as f64;
+            }
+        }
+        for (i, v) in c1_2.values.iter_mut().rev().enumerate() {
+            *v = i as f64;
+        }
+
+        let wedge_00 = mesh_2d.wedge(&c0, &c0);
+        let expected_00: Cochain<0, Primal> =
+            Cochain::from_values(vec![0., 1., 4., 9., 16., 25., 36.].into());
+        assert_eq!(
+            wedge_00, expected_00,
+            "0-cochains should be pointwise multiplied by wedge"
+        );
+
+        let wedge_01 = mesh_2d.wedge(&c0, &c1);
+        let wedge_10 = mesh_2d.wedge(&c1, &c0);
+        assert_eq!(wedge_01, wedge_10, "wedge with 0-cochain should commute");
+        let expected_01: Cochain<1, Primal> = Cochain::from_values(
+            vec![0., 1., 3., 6., 10., 12.5, 21., 24.5, 32., 40.5, 50., 60.5].into(),
+        );
+        assert_eq!(wedge_01, expected_01, "wrong result from 0-1 wedge");
+
+        let wedge_11_self = mesh_2d.wedge(&c1, &c1);
+        let expected_11: Cochain<2, Primal> = mesh_2d.new_zero_cochain();
+        assert_eq!(
+            wedge_11_self, expected_11,
+            "wedge of 1-cochain with itself should be zero"
+        );
+
+        let wedge_11_flipped = mesh_2d.wedge(&c1_2, &c1);
+        let wedge_11 = mesh_2d.wedge(&c1, &c1_2);
+        assert_eq!(
+            wedge_11, -wedge_11_flipped,
+            "wedge of 1-cochains should anticommute"
+        );
+        let expected_11: Cochain<2, Primal> = Cochain::from_values(
+            vec![-14. - 2. / 3., -11., -14. - 2. / 3., -11., -11., -11.].into(),
+        );
+        assert_eq!(wedge_11, expected_11, "wrong result from 1-1 wedge");
+
+        // just going to trust that the correctness of these tests
+        // translates to further cases in 3d and beyond
+        // because computing these by hand is insanely cumbersome
     }
 }

@@ -21,3 +21,5 @@ pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Op, Operator
 pub mod gmsh;
 
 pub mod quadrature;
+
+pub(crate) mod permutation;
