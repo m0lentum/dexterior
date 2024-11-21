@@ -215,6 +215,9 @@ pub fn build_mesh<const MESH_DIM: usize>(
     simplices[0].boundary_map = nas::CsrMatrix::zeros(simplices[0].len(), 0);
     simplices[MESH_DIM].coboundary_map = nas::CsrMatrix::zeros(simplices[MESH_DIM].len(), 0);
 
+    // store the top-level simplex orientations for later access (needed e.g. in wedge product)
+    simplices[MESH_DIM].orientations = top_simplex_orientations;
+
     //
     // identify mesh boundary
     //

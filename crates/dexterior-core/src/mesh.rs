@@ -84,6 +84,12 @@ pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     volumes: Vec<f64>,
     /// unsigned volumes of the corresponding dual simplices
     dual_volumes: Vec<f64>,
+    /// only for MESH_DIM-simplices:
+    /// orientation of the simplex with sorted indices
+    /// relative to the canonical orientation
+    /// (lower-dimensional simplices' orientation is only meaningful in the context of boundaries,
+    /// given by the boundary maps)
+    orientations: Vec<i8>,
 }
 
 impl<const DIM: usize> Default for SimplexCollection<DIM> {
@@ -103,6 +109,7 @@ impl<const DIM: usize> Default for SimplexCollection<DIM> {
             barycentric_differentials: OnceCell::new(),
             volumes: Vec::new(),
             dual_volumes: Vec::new(),
+            orientations: Vec::new(),
         }
     }
 }
@@ -497,6 +504,15 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         // neat bit of type inference for the dimension of simplex
         // from the fact that we use the simplex to assign to `ret`
         for simplex in (0..ret_simplex_count).map(|i| self.get_simplex_by_index_impl(i)) {
+            // if the output is a top-dimensional simplex,
+            // we also need to consider the orientation of the simplex
+            // because vertices are in lexicographic order, not consistently oriented
+            // (lower-dimensional simplices on the other hand are consistently oriented)
+            let simplex_orientation = if ret_dim < MESH_DIM {
+                1.
+            } else {
+                self.simplices[MESH_DIM].orientations[simplex.index()] as f64
+            };
             let mut sum = 0.;
             for perm in permutations.iter() {
                 // we need to find the k- and l-dimensional boundary simplices
@@ -525,6 +541,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                     .unwrap();
 
                 sum += perm.sign as f64
+                    * simplex_orientation
                     * (left_parity
                         * c1.values[left_simplex]
                         * right_parity
@@ -830,9 +847,8 @@ mod tests {
             wedge_11, -wedge_11_flipped,
             "wedge of 1-cochains should anticommute"
         );
-        let expected_11: Cochain<2, Primal> = Cochain::from_values(
-            vec![-14. - 2. / 3., -11., -14. - 2. / 3., -11., -11., -11.].into(),
-        );
+        let expected_11: Cochain<2, Primal> =
+            Cochain::from_values(vec![-14. - 2. / 3., 11., -14. - 2. / 3., 11., -11., 11.].into());
         assert_eq!(wedge_11, expected_11, "wrong result from 1-1 wedge");
 
         // just going to trust that the correctness of these tests
