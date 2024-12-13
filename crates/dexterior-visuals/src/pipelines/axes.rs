@@ -1,4 +1,12 @@
-use crate::{pipelines::LineDrawingMode, CapStyle, CapsStyle, LineParams, LineWidth};
+use crate::{
+    pipelines::{
+        text::{TextAnchor, TextBuffer, TextParams},
+        LineDrawingMode,
+    },
+    CapStyle, CapsStyle, LineParams, LineWidth,
+};
+
+use nalgebra as na;
 
 /// Parameters to configure the drawing of axis lines.
 #[derive(Clone, Copy, Debug)]
@@ -82,8 +90,9 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParams) {
     let minor_tick_interval = params.tick_interval / (params.minor_ticks + 1) as f32;
     let minor_tick_halflength = params.tick_length * 0.75 / 2.;
 
-    let mut major_tick_points = Vec::new();
-    let mut minor_tick_points = Vec::new();
+    let mut major_tick_points: Vec<[f32; 3]> = Vec::new();
+    let mut minor_tick_points: Vec<[f32; 3]> = Vec::new();
+    let mut labels: Vec<TextBuffer> = Vec::new();
     // this should generalize to 3D fairly easily, I hope
     for axis_idx in 0..2 {
         let cross_axis_idx = (axis_idx + 1) % 2;
@@ -106,6 +115,24 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParams) {
             tick_points[1][cross_axis_idx] = origin[cross_axis_idx] - params.tick_length / 2.;
             major_tick_points.extend_from_slice(&tick_points);
 
+            labels.push(painter.rend.text_pl.create_buffer(TextParams {
+                text: &format!(" {major_coord:.1} "),
+                position: na::Vector3::new(
+                    tick_points[1][0] as f64,
+                    tick_points[1][1] as f64,
+                    tick_points[1][2] as f64,
+                ),
+                anchor: if axis_idx == 0 {
+                    TextAnchor::TopMid
+                } else {
+                    TextAnchor::MidRight
+                },
+                font_size: 16.,
+                line_height: 24.,
+                attrs: glyphon::Attrs::new().weight(glyphon::Weight::BOLD),
+                ..Default::default()
+            }));
+
             if major_idx == tick_count {
                 break;
             }
@@ -124,6 +151,9 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParams) {
         }
     }
 
+    // TODO: caching of lines like we cache text;
+    // only generate all of this once and store it until parameters change
+
     draw(params_proto, &major_tick_points);
     draw(
         LineParams {
@@ -132,4 +162,7 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParams) {
         },
         &minor_tick_points,
     );
+    for label in labels {
+        painter.cached_text(&label.cache());
+    }
 }

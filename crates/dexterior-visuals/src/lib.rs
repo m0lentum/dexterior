@@ -29,6 +29,7 @@ pub(crate) mod pipelines;
 pub use pipelines::{
     axes::AxesParams,
     line::{CapStyle, CapsStyle, JoinStyle, LineDrawingMode, LineParams, LineWidth},
+    text::{TextAnchor, TextColor, TextParams},
     ArrowParams, Painter, WireframeParams,
 };
 
@@ -36,4 +37,5 @@ mod render_window;
 #[doc(inline)]
 pub use render_window::{RenderWindow, WindowParams};
 
+pub use glyphon;
 pub use palette;

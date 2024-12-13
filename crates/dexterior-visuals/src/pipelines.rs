@@ -10,13 +10,19 @@ use axes::AxesParams;
 mod vertex_colors;
 use vertex_colors::{VertexColorVariant, VertexColorsPipeline};
 
+pub(crate) mod text;
+use text::{CachedText, TextParams, TextPipeline};
+
 //
 
 use itertools::izip;
 use nalgebra as na;
 use std::{cell::OnceCell, collections::HashMap};
 
-use crate::render_window::{ActiveRenderWindow, RenderContext};
+use crate::{
+    camera::Camera,
+    render_window::{ActiveRenderWindow, RenderContext},
+};
 use dexterior_core as dex;
 
 pub(crate) struct Renderer {
@@ -24,6 +30,7 @@ pub(crate) struct Renderer {
     gradient_pl: OnceCell<VertexColorsPipeline>,
     flat_tri_pl: OnceCell<VertexColorsPipeline>,
     line_pl: LinePipeline,
+    text_pl: TextPipeline,
     // some GPU resources are shared between different pipelines
     pub resources: SharedResources,
     // map from names to indices in the color map collection
@@ -74,6 +81,7 @@ impl Renderer {
             gradient_pl: OnceCell::new(),
             flat_tri_pl: OnceCell::new(),
             line_pl: LinePipeline::new(window, &resources),
+            text_pl: TextPipeline::new(window),
             resources,
             color_map_names,
             state: RendererState {
@@ -88,6 +96,11 @@ impl Renderer {
     /// Activate the next color map in order.
     pub fn cycle_color_maps(&mut self) {
         self.state.color_map_idx = (self.state.color_map_idx + 1) % self.color_map_names.len();
+    }
+
+    /// Perform any draw operations that need to be batched (text, currently).
+    pub fn draw_batched(&mut self, ctx: &mut RenderContext, camera: &Camera) {
+        self.text_pl.draw(ctx, camera);
     }
 
     /// Reset any state accumulated within a frame
@@ -307,6 +320,23 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
             mode,
             &points,
         );
+    }
+
+    /// Draw a custom piece of text.
+    #[inline]
+    pub fn text<const POS_DIM: usize>(&mut self, text: TextParams<'_, POS_DIM>) {
+        self.rend.text_pl.create_and_queue(text);
+    }
+
+    /// Draw a piece of text that has been previously cached.
+    /// More efficient than [`text`][Self::text] for unchanging text.
+    ///
+    /// Currently not exposed to the user
+    /// because it's difficult to create a cached text buffer in the user-facing API
+    /// and users are unlikely to need large amounts of custom text.
+    #[inline]
+    pub(crate) fn cached_text(&mut self, text: &CachedText) {
+        self.rend.text_pl.queue_buffer(text);
     }
 }
 
