@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use glyphon as gh;
 use itertools::izip;
 use nalgebra as na;
@@ -15,6 +17,10 @@ pub(crate) struct TextPipeline {
     viewport: gh::Viewport,
     atlas: gh::TextAtlas,
     renderer: gh::TextRenderer,
+    /// Glyphon requires us to draw all the text in one call,
+    /// so we collect each text request into a queue and flush it at the end of a frame.
+    /// Buffers are wrapped in Rcs to facilitate caching.
+    pub draw_queue: Vec<Rc<TextBuffer>>,
 }
 
 /// Parameters for displaying text.
@@ -85,11 +91,31 @@ pub enum TextAnchor {
     BottomRight,
 }
 
+/// A text buffer ready for rendering, created with [`TextPipeline::create_buffer`].
 pub(crate) struct TextBuffer {
     buffer: gh::Buffer,
     position: na::Vector3<f32>,
     anchor: TextAnchor,
     color: TextColor,
+}
+
+/// A renderable piece of text that can be retained between frames
+/// and drawn multiple times with [`Painter::cached_text`][crate::Painter::cached_text].
+///
+/// Currently only for internal use,
+/// as creating these is only possible in the user-facing API in the `draw` method,
+/// which requires the user to do some cumbersome first-frame initialization.
+/// Drawing large amounts of custom text is probably a rare use case,
+/// so the perf cost of redoing layout each frame is acceptable
+/// to simplify the API, at least for now.
+pub(crate) struct CachedText {
+    buf: Rc<TextBuffer>,
+}
+
+impl TextBuffer {
+    pub fn cache(self) -> CachedText {
+        CachedText { buf: Rc::new(self) }
+    }
 }
 
 impl TextPipeline {
@@ -113,6 +139,7 @@ impl TextPipeline {
             viewport,
             atlas,
             renderer,
+            draw_queue: Vec::new(),
         }
     }
 
@@ -150,8 +177,23 @@ impl TextPipeline {
         }
     }
 
-    /// Draw a slice of text areas in one draw call.
-    pub fn draw(&mut self, ctx: &mut RenderContext, camera: &Camera, buffers: &[TextBuffer]) {
+    /// Queue a buffer for drawing at the end of the frame.
+    #[inline]
+    pub fn queue_buffer(&mut self, text: &CachedText) {
+        self.draw_queue.push(text.buf.clone());
+    }
+
+    /// Create a text buffer and queue it to be drawn this frame.
+    /// Convenience method for text that isn't cached
+    /// and thus gets dropped at the end of the frame.
+    #[inline]
+    pub fn create_and_queue<const DIM: usize>(&mut self, params: TextParams<'_, DIM>) {
+        let buf = self.create_buffer(params);
+        self.queue_buffer(&buf.cache());
+    }
+
+    /// Draw all text buffers that have been queued during this frame.
+    pub fn draw(&mut self, ctx: &mut RenderContext, camera: &Camera) {
         self.viewport.update(
             ctx.queue,
             gh::Resolution {
@@ -166,7 +208,7 @@ impl TextPipeline {
             ctx.viewport_size.1 as f32 / 2.,
         );
 
-        let areas = buffers.iter().map(|buf| {
+        let areas = self.draw_queue.iter().map(|buf| {
             let anchor_pos_ndc =
                 view_proj * na::Vector4::new(buf.position.x, buf.position.y, buf.position.z, 1.);
             let anchor_pixel = na::Vector2::new(
@@ -241,5 +283,7 @@ impl TextPipeline {
         self.renderer
             .render(&self.atlas, &self.viewport, &mut pass)
             .expect("Failed to render text");
+
+        self.draw_queue.clear();
     }
 }

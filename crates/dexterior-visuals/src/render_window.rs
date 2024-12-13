@@ -583,7 +583,6 @@ where
             ctx: &mut ctx,
             rend: renderer,
             mesh: self.anim.mesh,
-            camera: &self.camera,
         };
 
         let interpolated_state = State::interpolate(
@@ -592,6 +591,7 @@ where
             self.time_in_frame / self.anim.dt,
         );
         (self.anim.draw)(&interpolated_state, &mut painter);
+        renderer.draw_batched(&mut ctx, &self.camera);
 
         ctx.queue.submit(Some(ctx.encoder.finish()));
         renderer.end_frame();

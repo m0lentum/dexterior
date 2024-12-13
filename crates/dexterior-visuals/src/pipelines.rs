@@ -11,7 +11,7 @@ mod vertex_colors;
 use vertex_colors::{VertexColorVariant, VertexColorsPipeline};
 
 pub(crate) mod text;
-use text::{TextParams, TextPipeline};
+use text::{CachedText, TextParams, TextPipeline};
 
 //
 
@@ -98,6 +98,11 @@ impl Renderer {
         self.state.color_map_idx = (self.state.color_map_idx + 1) % self.color_map_names.len();
     }
 
+    /// Perform any draw operations that need to be batched (text, currently).
+    pub fn draw_batched(&mut self, ctx: &mut RenderContext, camera: &Camera) {
+        self.text_pl.draw(ctx, camera);
+    }
+
     /// Reset any state accumulated within a frame
     /// to prepare for the next one.
     pub fn end_frame(&mut self) {
@@ -114,7 +119,6 @@ pub struct Painter<'a, 'ctx: 'a> {
     pub(crate) ctx: &'a mut RenderContext<'ctx>,
     pub(crate) rend: &'a mut Renderer,
     pub(crate) mesh: &'a dex::SimplicialMesh<2>,
-    pub(crate) camera: &'a Camera,
 }
 
 impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
@@ -319,14 +323,20 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     }
 
     /// Draw a custom piece of text.
+    #[inline]
     pub fn text<const POS_DIM: usize>(&mut self, text: TextParams<'_, POS_DIM>) {
-        let buf = self.rend.text_pl.create_buffer(text);
-        self.rend.text_pl.draw(self.ctx, self.camera, &[buf]);
+        self.rend.text_pl.create_and_queue(text);
     }
 
-    /// Draw a slice of pre-created text buffers.
-    fn cached_text(&mut self, bufs: &[text::TextBuffer]) {
-        self.rend.text_pl.draw(self.ctx, self.camera, bufs);
+    /// Draw a piece of text that has been previously cached.
+    /// More efficient than [`text`][Self::text] for unchanging text.
+    ///
+    /// Currently not exposed to the user
+    /// because it's difficult to create a cached text buffer in the user-facing API
+    /// and users are unlikely to need large amounts of custom text.
+    #[inline]
+    pub(crate) fn cached_text(&mut self, text: &CachedText) {
+        self.rend.text_pl.queue_buffer(text);
     }
 }
 

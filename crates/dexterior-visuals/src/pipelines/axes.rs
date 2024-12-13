@@ -151,6 +151,9 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParams) {
         }
     }
 
+    // TODO: caching of lines like we cache text;
+    // only generate all of this once and store it until parameters change
+
     draw(params_proto, &major_tick_points);
     draw(
         LineParams {
@@ -159,5 +162,7 @@ pub(crate) fn axes_2d(painter: &mut super::Painter, params: AxesParams) {
         },
         &minor_tick_points,
     );
-    painter.cached_text(&labels);
+    for label in labels {
+        painter.cached_text(&label.cache());
+    }
 }
