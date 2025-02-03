@@ -188,6 +188,83 @@ impl<const DIM: usize, const MESH_DIM: usize, Primality> PartialEq
     }
 }
 
+/// A nonuniform scaling that does not change a cochain's dimension or primality.
+/// Useful for spatially varying material parameters.
+///
+/// This operator is constructed from a mesh with [`SimplicialMesh::scaling`][crate::SimplicialMesh::scaling].
+/// See its documentation for details.
+#[derive(Clone, Debug)]
+pub struct Scaling<const DIM: usize, Primality> {
+    diagonal: na::DVector<f64>,
+    _marker: std::marker::PhantomData<Primality>,
+}
+
+impl<const DIM: usize, Primality> Operator for Scaling<DIM, Primality>
+where
+    Primality: MeshPrimality,
+{
+    type Input = CochainImpl<na::Const<DIM>, Primality>;
+    type Output = CochainImpl<na::Const<DIM>, Primality>;
+
+    // these methods are copied directly from Hodge star.
+    // if more diagonal operators are introduced (although this seems unlikely),
+    // consider further abstraction
+
+    fn apply(&self, input: &Self::Input) -> Self::Output {
+        let input = input.values();
+        let ret = na::DVector::from_iterator(
+            input.len(),
+            izip!(self.diagonal.iter(), input.iter()).map(|(&diag_val, &in_val)| diag_val * in_val),
+        );
+        Self::Output::from_values(ret)
+    }
+
+    fn into_csr(self) -> nas::CsrMatrix<f64> {
+        let mut csr = nas::CsrMatrix::identity(self.diagonal.len());
+        for (&diag, mat_diag) in self.diagonal.iter().zip(csr.values_mut()) {
+            *mat_diag = diag;
+        }
+        csr
+    }
+}
+
+impl<const DIM: usize, Primality> Scaling<DIM, Primality>
+where
+    Primality: MeshPrimality,
+{
+    /// Constructor exposed to crate only, used in `SimplicialMesh::star`.
+    pub(crate) fn new(diagonal: na::DVector<f64>) -> Self {
+        Self {
+            diagonal,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Set a subset of elements in the output cochain to zero
+    /// when this operator is applied
+    /// (i.e. set a subset of rows in the operator matrix to zero).
+    /// useful for boundary conditions.
+    pub fn exclude_subset(
+        mut self,
+        set: SubsetRef<
+            '_,
+            <<Self as Operator>::Output as Operand>::Dimension,
+            <<Self as Operator>::Output as Operand>::Primality,
+        >,
+    ) -> Self {
+        for row_idx in set.indices.ones() {
+            self.diagonal[row_idx] = 0.0;
+        }
+        self
+    }
+}
+
+impl<const DIM: usize, Primality> PartialEq for Scaling<DIM, Primality> {
+    fn eq(&self, other: &Self) -> bool {
+        self.diagonal == other.diagonal
+    }
+}
+
 /// A composition of one or more [`Operator`][self::Operator]s.
 ///
 /// Operator composition can be done using multiplication syntax:
@@ -392,6 +469,18 @@ where
     }
 }
 
+impl<const D: usize, P, Op> std::ops::Mul<Op> for Scaling<D, P>
+where
+    P: MeshPrimality,
+    Op: Operator<Output = <Self as Operator>::Input>,
+{
+    type Output = ComposedOperator<Op::Input, <Self as Operator>::Output>;
+
+    fn mul(self, rhs: Op) -> Self::Output {
+        compose(self, rhs)
+    }
+}
+
 impl<I, O, Op> std::ops::Mul<Op> for ComposedOperator<I, O>
 where
     I: Operand,
@@ -420,6 +509,15 @@ impl<const D: usize, const MD: usize, P> std::ops::Mul<HodgeStar<D, MD, P>> for 
     type Output = HodgeStar<D, MD, P>;
 
     fn mul(self, mut rhs: HodgeStar<D, MD, P>) -> Self::Output {
+        rhs.diagonal *= self;
+        rhs
+    }
+}
+
+impl<const D: usize, P> std::ops::Mul<Scaling<D, P>> for f64 {
+    type Output = Scaling<D, P>;
+
+    fn mul(self, mut rhs: Scaling<D, P>) -> Self::Output {
         rhs.diagonal *= self;
         rhs
     }
@@ -480,6 +578,28 @@ where
     P: MeshPrimality,
 {
     type Output = <HodgeStar<D, MD, P> as Operator>::Output;
+
+    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
+        self.apply(rhs)
+    }
+}
+
+impl<const D: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>> for Scaling<D, P>
+where
+    P: MeshPrimality,
+{
+    type Output = <Self as Operator>::Output;
+
+    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
+        self.apply(rhs)
+    }
+}
+
+impl<const D: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>> for &Scaling<D, P>
+where
+    P: MeshPrimality,
+{
+    type Output = <Scaling<D, P> as Operator>::Output;
 
     fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
         self.apply(rhs)

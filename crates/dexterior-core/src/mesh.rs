@@ -23,6 +23,7 @@ use std::{cell::OnceCell, collections::HashMap, rc::Rc};
 
 use crate::{
     cochain::{Cochain, CochainImpl},
+    operator::Scaling,
     quadrature::Quadrature,
 };
 
@@ -482,6 +483,44 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         };
 
         crate::HodgeStar::new(diag)
+    }
+
+    /// Create a nonuniform scaling matrix that assigns coefficients to elements
+    /// of a primal cochain according to the given function.
+    ///
+    /// Due to type system constraints, this method only applies to primal cochains.
+    /// Use [`scaling_dual`][Self::scaling_dual] instead if scaling a dual cochain.
+    pub fn scaling<const DIM: usize>(
+        &self,
+        elem_scaling: impl Fn(SimplexView<na::Const<DIM>, MESH_DIM>) -> f64,
+    ) -> Scaling<DIM, Primal>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        let diag = na::DVector::from_iterator(
+            self.simplex_count::<DIM>(),
+            self.simplices::<DIM>().map(elem_scaling),
+        );
+        Scaling::new(diag)
+    }
+
+    /// Create a nonuniform scaling matrix that assigns coefficients to elements
+    /// of a dual cochain according to the given function.
+    ///
+    /// Due to type system constraints, this method only applies to dual cochains.
+    /// Use [`scaling`][Self::scaling] instead if scaling a primal cochain.
+    pub fn scaling_dual<const DIM: usize>(
+        &self,
+        elem_scaling: impl Fn(DualCellView<na::Const<DIM>, MESH_DIM>) -> f64,
+    ) -> Scaling<DIM, Dual>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        let diag = na::DVector::from_iterator(
+            self.simplex_count_dyn(MESH_DIM - DIM),
+            self.dual_cells::<DIM>().map(elem_scaling),
+        );
+        Scaling::new(diag)
     }
 
     /// Compute a discrete wedge product between two primal cochains.
