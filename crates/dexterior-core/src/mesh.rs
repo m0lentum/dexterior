@@ -325,6 +325,23 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         self.integrate_cochain_impl(IndexIter::Subset(subset.indices.ones()), quadrature)
     }
 
+    /// Overwrite a subset of an existing cochain with newly integrated values.
+    ///
+    /// Convenience method combining [`integrate_cochain_partial`][Self::integrate_cochain_partial]
+    /// and [`Cochain::overwrite`].
+    /// Has the same limitations as the other `integrate_cochain` methods.
+    pub fn integrate_overwrite<const DIM: usize, Primality>(
+        &self,
+        cochain: &mut Cochain<DIM, Primality>,
+        subset: SubsetRef<'_, na::Const<DIM>, Primality>,
+        quadrature: impl Quadrature<DIM, MESH_DIM>,
+    ) where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>> + Copy,
+        Primality: MeshPrimality + Copy,
+    {
+        cochain.overwrite(subset, &self.integrate_cochain_partial(subset, quadrature));
+    }
+
     fn integrate_cochain_impl<const DIM: usize, Primality>(
         &self,
         idx_iter: IndexIter,

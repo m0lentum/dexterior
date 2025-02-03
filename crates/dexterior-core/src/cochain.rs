@@ -2,6 +2,8 @@
 
 use nalgebra as na;
 
+use crate::mesh::SubsetRef;
+
 /// A vector of values corresponding to
 /// a set of `k`-dimensional cells on a mesh.
 ///
@@ -50,6 +52,13 @@ impl<Dimension, Primality> CochainImpl<Dimension, Primality> {
     /// Linearly interpolate along the line from `self` to `end`.
     pub fn lerp(&self, end: &Self, t: f64) -> Self {
         self + &(t * (end - self))
+    }
+
+    /// Replace a subset of this cochain's values with those of another cochain.
+    pub fn overwrite(&mut self, subset: SubsetRef<'_, Dimension, Primality>, other: &Self) {
+        for i in subset.indices.ones() {
+            self.values[i] = other.values[i];
+        }
     }
 }
 
