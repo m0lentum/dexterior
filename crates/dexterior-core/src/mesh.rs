@@ -129,22 +129,6 @@ impl<const DIM: usize> SimplexCollection<DIM> {
     }
 }
 
-/// A subset of cells in a mesh, e.g. its boundary.
-///
-/// Used to restrict operations to certain parts of the mesh,
-/// e.g. with [`ComposedOperator::exclude_subset`
-/// ][crate::operator::ComposedOperator::exclude_subset].
-///
-/// You can iterate over the simplices in this set with [`SimplicialMesh::simplices_in`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SubsetRef<'a, Dimension, Primality> {
-    /// A bitset containing the indices of simplices present in the subset.
-    ///
-    /// Iterate over the indices with `indices.ones()`.
-    pub indices: &'a fb::FixedBitSet,
-    _marker: std::marker::PhantomData<(Dimension, Primality)>,
-}
-
 impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// Construct a mesh from raw vertices and indices.
     ///
@@ -782,6 +766,56 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
 
         whitney_vals
+    }
+}
+
+/// A subset of cells in a mesh, e.g. its boundary.
+///
+/// Used to restrict operations to certain parts of the mesh,
+/// e.g. with [`ComposedOperator::exclude_subset`
+/// ][crate::operator::ComposedOperator::exclude_subset].
+///
+/// You can iterate over the simplices in this set with [`SimplicialMesh::simplices_in`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SubsetRef<'a, Dimension, Primality> {
+    /// A bitset containing the indices of simplices present in the subset.
+    ///
+    /// Iterate over the indices with `indices.ones()`.
+    pub indices: &'a fb::FixedBitSet,
+    _marker: std::marker::PhantomData<(Dimension, Primality)>,
+}
+
+impl<'a, Dimension> SubsetRef<'a, Dimension, Primal>
+where
+    Dimension: na::DimName,
+{
+    /// Check if the subset contains a given simplex.
+    #[inline]
+    pub fn contains<const MESH_DIM: usize>(
+        &self,
+        simplex: SimplexView<'_, Dimension, MESH_DIM>,
+    ) -> bool
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<Dimension>,
+    {
+        self.indices.contains(simplex.index())
+    }
+}
+
+impl<'a, Dimension> SubsetRef<'a, Dimension, Dual>
+where
+    Dimension: na::DimName,
+{
+    /// Check if the subset contains a given dual cell.
+    #[inline]
+    pub fn contains<const MESH_DIM: usize>(
+        &self,
+        simplex: DualCellView<'_, Dimension, MESH_DIM>,
+    ) -> bool
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<Dimension>,
+    {
+        self.indices.contains(simplex.index())
     }
 }
 
