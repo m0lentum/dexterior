@@ -1,5 +1,7 @@
 // simple 3d mesh for unit tests in the gmsh module
 
+Mesh.SaveAll = 1;
+
 Point(1) = {-1, -1, 0, 0.2};
 Point(2) = {1, -1, 0, 0.2};
 Point(3) = {1, 1, 0, 0.2};

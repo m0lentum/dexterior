@@ -1,5 +1,8 @@
 // simple 2d mesh for unit tests in the gmsh module
 
+// save also elements that aren't in any physical group
+Mesh.SaveAll = 1;
+
 Point(1) = {-1, 0, 0, 0.2};
 Point(2) = {1, 0, 0, 0.2};
 Point(3) = {0, 1, 0, 0.2};

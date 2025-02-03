@@ -1,5 +1,7 @@
 // square 2D mesh with domain [0, pi] x [0, pi]
 
+Mesh.SaveAll = 1;
+
 lc = Pi / 20.0;
 Point(1) = {0, 0, 0, lc};
 Point(2) = {Pi, 0, 0, lc};

@@ -1,5 +1,7 @@
 // 2d square with a star-shaped hole for acoustic scatterer simulation
 
+Mesh.SaveAll = 1;
+
 lc = Pi / 8.0;
 
 // outer square
