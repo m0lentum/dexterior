@@ -91,8 +91,8 @@ where
     /// Get the dual cell corresponding to this simplex.
     #[inline]
     pub fn dual(
-        &self,
-    ) -> DualCellView<'_, na::DimNameDiff<na::Const<MESH_DIM>, SimplexDim>, MESH_DIM> {
+        self,
+    ) -> DualCellView<'a, na::DimNameDiff<na::Const<MESH_DIM>, SimplexDim>, MESH_DIM> {
         DualCellView {
             mesh: self.mesh,
             index: self.index,
@@ -124,7 +124,7 @@ where
     SimplexDim: na::DimNameSub<na::U1>,
 {
     /// Iterate over the `k-1`-dimensional simplices on the boundary of this simplex.
-    pub fn boundary(&self) -> BoundaryIter<'_, na::DimNameDiff<SimplexDim, na::U1>, MESH_DIM> {
+    pub fn boundary(self) -> BoundaryIter<'a, na::DimNameDiff<SimplexDim, na::U1>, MESH_DIM> {
         BoundaryIter {
             mesh: self.mesh,
             index: 0,

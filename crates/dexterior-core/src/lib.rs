@@ -7,7 +7,7 @@
 pub mod mesh;
 #[doc(inline)]
 pub use mesh::{
-    Dual, DualCellIter, DualCellView, Primal, SimplexIter, SimplexView, SimplicialMesh,
+    Dual, DualCellIter, DualCellView, Primal, SimplexIter, SimplexView, SimplicialMesh, Subset,
 };
 
 pub mod cochain;

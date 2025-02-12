@@ -5,6 +5,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::mesh::Subset;
+
 /// Error in loading a mesh from a Gmsh .msh file.
 #[derive(thiserror::Error, Debug)]
 pub enum GmshError {
@@ -149,15 +151,19 @@ pub fn load_trimesh_2d(bytes: &[u8]) -> Result<crate::SimplicialMesh<2>, GmshErr
     for (group_id, group) in physical_groups.iter() {
         let group_name = format!("{}", group_id);
         // the subset of vertices is just the nodes in the group
-        mesh.create_subset_from_indices::<0>(&group_name, group.nodes.iter().cloned());
+        let verts = Subset::from_indices(group.nodes.iter().cloned());
+        mesh.store_subset::<0>(&group_name, verts);
         // for other dimensions, only include simplices for which
         // all vertices belong to the group
-        mesh.create_subset_from_predicate::<1>(&group_name, |s| {
+        let edges = Subset::from_predicate(&mesh, |s| {
             s.vertex_indices().all(|i| group.nodes.contains(&i))
         });
-        mesh.create_subset_from_predicate::<2>(&group_name, |s| {
+        mesh.store_subset::<1>(&group_name, edges);
+
+        let tris = Subset::from_predicate(&mesh, |s| {
             s.vertex_indices().all(|i| group.nodes.contains(&i))
         });
+        mesh.store_subset::<2>(&group_name, tris);
     }
 
     Ok(mesh)
@@ -215,16 +221,23 @@ pub fn load_tetmesh_3d(bytes: &[u8]) -> Result<crate::SimplicialMesh<3>, GmshErr
     let mut mesh = crate::SimplicialMesh::new(vertices, indices);
     for (group_id, group) in physical_groups.iter() {
         let group_name = format!("{}", group_id);
-        mesh.create_subset_from_indices::<0>(&group_name, group.nodes.iter().cloned());
-        mesh.create_subset_from_predicate::<1>(&group_name, |s| {
+        let verts = Subset::from_indices(group.nodes.iter().cloned());
+        mesh.store_subset::<0>(&group_name, verts);
+
+        let edges = Subset::from_predicate(&mesh, |s| {
             s.vertex_indices().all(|i| group.nodes.contains(&i))
         });
-        mesh.create_subset_from_predicate::<2>(&group_name, |s| {
+        mesh.store_subset::<1>(&group_name, edges);
+
+        let tris = Subset::from_predicate(&mesh, |s| {
             s.vertex_indices().all(|i| group.nodes.contains(&i))
         });
-        mesh.create_subset_from_predicate::<3>(&group_name, |s| {
+        mesh.store_subset::<2>(&group_name, tris);
+
+        let tets = Subset::from_predicate(&mesh, |s| {
             s.vertex_indices().all(|i| group.nodes.contains(&i))
         });
+        mesh.store_subset::<3>(&group_name, tets);
     }
 
     Ok(mesh)

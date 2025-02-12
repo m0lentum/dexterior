@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ops = Ops {
         p_step: (-dt * wave_speed_sq * mesh.star() * mesh.d() * mesh.star())
             // Dirichlet boundary implemented by removing rows from the operator
-            .exclude_subset(mesh.boundary()),
+            .exclude_subset(&mesh.boundary()),
         v_step: (dt * mesh.d()).into(),
     };
 

@@ -12,6 +12,9 @@ mod views;
 use views::IndexIter;
 pub use views::{DualCellIter, DualCellView, SimplexIter, SimplexView};
 
+mod subset;
+pub use subset::{Subset, SubsetImpl};
+
 //
 
 use fixedbitset as fb;
@@ -201,7 +204,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// Iterate over the `DIM`-simplices in the given subset.
     pub fn simplices_in<'me, 'sub: 'me, const DIM: usize>(
         &'me self,
-        subset: SubsetRef<'sub, na::Const<DIM>, Primal>,
+        subset: &'sub Subset<DIM, Primal>,
     ) -> SimplexIter<'me, DIM, MESH_DIM>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
@@ -220,6 +223,20 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         DualCellIter {
             mesh: self,
             idx_iter: IndexIter::All(0..self.simplices[MESH_DIM - DIM].len()),
+        }
+    }
+
+    /// Iterate over the `DIM`-dimensional dual cells in the given subset.
+    pub fn dual_cells_in<'me, 'sub: 'me, const DIM: usize>(
+        &'me self,
+        subset: &'sub Subset<DIM, Dual>,
+    ) -> DualCellIter<'me, DIM, MESH_DIM>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        DualCellIter {
+            mesh: self,
+            idx_iter: IndexIter::Subset(subset.indices.ones()),
         }
     }
 
@@ -300,7 +317,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// See [`integrate_cochain`][Self::integrate_cochain] for details.
     pub fn integrate_cochain_partial<const DIM: usize, Primality>(
         &self,
-        subset: SubsetRef<'_, na::Const<DIM>, Primality>,
+        subset: &Subset<DIM, Primality>,
         quadrature: impl Quadrature<DIM, MESH_DIM>,
     ) -> crate::Cochain<DIM, Primality>
     where
@@ -318,7 +335,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     pub fn integrate_overwrite<const DIM: usize, Primality>(
         &self,
         cochain: &mut Cochain<DIM, Primality>,
-        subset: SubsetRef<'_, na::Const<DIM>, Primality>,
+        subset: &Subset<DIM, Primality>,
         quadrature: impl Quadrature<DIM, MESH_DIM>,
     ) where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>> + Copy,
@@ -600,76 +617,41 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     ///
     /// This method does not exist for the highest-dimensional simplices in the mesh,
     /// as they are all in the mesh interior.
-    pub fn boundary<const DIM: usize>(&self) -> SubsetRef<'_, na::Const<DIM>, Primal>
+    #[inline]
+    pub fn boundary<const DIM: usize>(&self) -> Subset<DIM, Primal>
     where
         na::Const<DIM>: na::DimNameAdd<na::U1>,
         na::Const<MESH_DIM>: na::DimNameSub<na::DimNameSum<na::Const<DIM>, na::U1>>,
     {
-        SubsetRef {
-            indices: &self.simplices[DIM].mesh_boundary,
-            _marker: std::marker::PhantomData,
-        }
+        Subset::new(self.simplices[DIM].mesh_boundary.clone())
     }
 
-    /// Create a subset of `DIM`-simplices from an iterator of simplex indices.
-    ///
-    /// The subset can be accessed using [`get_subset`][Self::get_subset]
-    /// with the name given to this function.
-    pub fn create_subset_from_indices<const DIM: usize>(
-        &mut self,
-        name: impl Into<String>,
-        indices: impl Iterator<Item = usize>,
-    ) where
-        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
-    {
-        let bits = fb::FixedBitSet::from_iter(indices);
-        self.simplices[DIM].custom_subsets.insert(name.into(), bits);
-    }
-
-    /// Create a subset of `DIM`-simplices containing the simplices
-    /// that pass the given predicate.
-    ///
-    /// The subset can be accessed using [`get_subset`][Self::get_subset]
-    /// with the name given to this function.
-    pub fn create_subset_from_predicate<const DIM: usize>(
-        &mut self,
-        name: impl Into<String>,
-        pred: impl Fn(SimplexView<na::Const<DIM>, MESH_DIM>) -> bool,
-    ) where
-        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
-    {
-        let bits: fb::FixedBitSet = self
-            .simplices::<DIM>()
-            .enumerate()
-            .filter(|(_, s)| pred(*s))
-            .map(|(i, _)| i)
-            .collect();
-
-        self.simplices[DIM].custom_subsets.insert(name.into(), bits);
-    }
-
-    /// Look up a user-defined subset of `DIM`-simplices by name.
+    /// Look up a subset of `DIM`-simplices, defined as a `gmsh` physical group, by name.
     ///
     /// Returns None if a subset with the name does not exist for this dimension.
-    /// No subsets exist by default; they have to be created
-    /// by either using one of [`create_subset_from_indices`][Self::create_subset_from_indices]
-    /// and [`create_subset_from_predicate`][Self::create_subset_from_predicate]
-    /// or by defining physical groups in a `gmsh` file.
     ///
     /// Note that the mesh boundary is a special subset
     /// accessed through [`boundary`][Self::boundary] instead of this method.
-    pub fn get_subset<const DIM: usize>(
-        &self,
-        name: &str,
-    ) -> Option<SubsetRef<'_, na::Const<DIM>, Primal>>
+    #[inline]
+    pub fn get_subset<const DIM: usize>(&self, name: &str) -> Option<Subset<DIM, Primal>>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
     {
-        let indices = self.simplices[DIM].custom_subsets.get(name)?;
-        Some(SubsetRef {
-            indices,
-            _marker: std::marker::PhantomData,
-        })
+        let indices = self.simplices[DIM].custom_subsets.get(name)?.clone();
+        Some(Subset::new(indices))
+    }
+
+    /// Store a named subset in the mesh data.
+    /// Not exposed to the user; used internally by the `gmsh` module.
+    #[inline]
+    pub(crate) fn store_subset<const DIM: usize>(
+        &mut self,
+        name: &str,
+        subset: Subset<DIM, Primal>,
+    ) {
+        self.simplices[DIM]
+            .custom_subsets
+            .insert(name.to_string(), subset.indices);
     }
 
     /// Find the index of a simplex in its collection given its vertex indices.
@@ -680,6 +662,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     ///
     /// Returns None if no `DIM`-simplex with the given indices exists.
     /// This is always the case if the number of indices isn't `DIM + 1`.
+    #[inline]
     pub fn find_simplex_index<const DIM: usize>(&self, indices: &[usize]) -> Option<usize>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
@@ -769,56 +752,6 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     }
 }
 
-/// A subset of cells in a mesh, e.g. its boundary.
-///
-/// Used to restrict operations to certain parts of the mesh,
-/// e.g. with [`ComposedOperator::exclude_subset`
-/// ][crate::operator::ComposedOperator::exclude_subset].
-///
-/// You can iterate over the simplices in this set with [`SimplicialMesh::simplices_in`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SubsetRef<'a, Dimension, Primality> {
-    /// A bitset containing the indices of simplices present in the subset.
-    ///
-    /// Iterate over the indices with `indices.ones()`.
-    pub indices: &'a fb::FixedBitSet,
-    _marker: std::marker::PhantomData<(Dimension, Primality)>,
-}
-
-impl<'a, Dimension> SubsetRef<'a, Dimension, Primal>
-where
-    Dimension: na::DimName,
-{
-    /// Check if the subset contains a given simplex.
-    #[inline]
-    pub fn contains<const MESH_DIM: usize>(
-        &self,
-        simplex: SimplexView<'_, Dimension, MESH_DIM>,
-    ) -> bool
-    where
-        na::Const<MESH_DIM>: na::DimNameSub<Dimension>,
-    {
-        self.indices.contains(simplex.index())
-    }
-}
-
-impl<'a, Dimension> SubsetRef<'a, Dimension, Dual>
-where
-    Dimension: na::DimName,
-{
-    /// Check if the subset contains a given dual cell.
-    #[inline]
-    pub fn contains<const MESH_DIM: usize>(
-        &self,
-        simplex: DualCellView<'_, Dimension, MESH_DIM>,
-    ) -> bool
-    where
-        na::Const<MESH_DIM>: na::DimNameSub<Dimension>,
-    {
-        self.indices.contains(simplex.index())
-    }
-}
-
 //
 // mesh primality generics
 //
@@ -865,21 +798,6 @@ impl MeshPrimality for Dual {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Check that subset creation works as expected.
-    #[test]
-    fn create_subsets() {
-        let mut mesh = tiny_mesh_3d();
-
-        let indices = [1, 3, 8];
-        mesh.create_subset_from_indices::<1>("indices", indices.iter().cloned());
-        mesh.create_subset_from_predicate::<1>("predicate", |s| indices.contains(&s.index()));
-
-        let idx_subset = mesh.get_subset::<1>("indices").unwrap();
-        let pred_subset = mesh.get_subset::<1>("predicate").unwrap();
-        assert_eq!(idx_subset.indices, pred_subset.indices);
-        itertools::assert_equal(idx_subset.indices.ones(), indices.iter().cloned());
-    }
 
     /// Test that the discrete wedge product gives expected results.
     #[test]

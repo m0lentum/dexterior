@@ -67,8 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ops = Ops {
         p_step: dt * wave_speed.powi(2) * mesh.star() * mesh.d(),
         q_step: (dt * mesh.star() * mesh.d())
-            .exclude_subset(absorbing_boundary)
-            .exclude_subset(scattering_boundary),
+            .exclude_subset(&absorbing_boundary)
+            .exclude_subset(&scattering_boundary),
     };
 
     // introduce source terms with easing starting from zero ("Mur transition")
@@ -105,17 +105,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.q += &ops.q_step * &state.p;
             let easing_coef = easing(t_at_q);
             let boundary_wave: Flux = mesh.integrate_cochain_partial(
-                scattering_boundary,
+                &scattering_boundary,
                 dex::quadrature::GaussLegendre6(|v, d| easing_coef * eval_wave_flux(t_at_q, v, d)),
             );
-            for edge in mesh.simplices_in(scattering_boundary) {
+            for edge in mesh.simplices_in(&scattering_boundary) {
                 state.q[edge] = boundary_wave[edge];
             }
 
             // absorbing boundary.
             // TODO: this could be done as an operator
             // if we had a way to make custom operators
-            for edge in mesh.simplices_in(absorbing_boundary) {
+            for edge in mesh.simplices_in(&absorbing_boundary) {
                 let length = edge.volume();
                 // edges on the boundary always only border one volume element,
                 // and the adjacent dual vertex is the one corresponding to that element

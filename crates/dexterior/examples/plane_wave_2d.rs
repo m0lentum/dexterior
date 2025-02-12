@@ -90,10 +90,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             state.q += &ops.q_step * &state.p;
             let boundary_wave: Flux = mesh.integrate_cochain_partial(
-                mesh.boundary(),
+                &mesh.boundary(),
                 dex::quadrature::GaussLegendre6(|v, d| eval_wave_flux(t_at_q, v, d)),
             );
-            for edge in mesh.simplices_in(mesh.boundary()) {
+            for edge in mesh.simplices_in(&mesh.boundary()) {
                 state.q[edge] = boundary_wave[edge];
             }
 

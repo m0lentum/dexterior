@@ -6,7 +6,7 @@ use nalgebra_sparse as nas;
 
 use crate::{
     cochain::CochainImpl,
-    mesh::{MeshPrimality, SubsetRef},
+    mesh::{MeshPrimality, SubsetImpl},
 };
 use itertools::izip;
 
@@ -88,13 +88,12 @@ where
     /// useful for boundary conditions.
     pub fn exclude_subset(
         mut self,
-        set: SubsetRef<
-            '_,
+        set: &SubsetImpl<
             <<Self as Operator>::Output as Operand>::Dimension,
             <<Self as Operator>::Output as Operand>::Primality,
         >,
     ) -> Self {
-        self.mat = drop_csr_rows(self.mat, set.indices);
+        self.mat = drop_csr_rows(self.mat, &set.indices);
         self
     }
 }
@@ -167,8 +166,7 @@ where
     /// useful for boundary conditions.
     pub fn exclude_subset(
         mut self,
-        set: SubsetRef<
-            '_,
+        set: &SubsetImpl<
             <<Self as Operator>::Output as Operand>::Dimension,
             <<Self as Operator>::Output as Operand>::Primality,
         >,
@@ -246,8 +244,7 @@ where
     /// useful for boundary conditions.
     pub fn exclude_subset(
         mut self,
-        set: SubsetRef<
-            '_,
+        set: &SubsetImpl<
             <<Self as Operator>::Output as Operand>::Dimension,
             <<Self as Operator>::Output as Operand>::Primality,
         >,
@@ -319,9 +316,9 @@ where
     /// useful for boundary conditions.
     pub fn exclude_subset(
         mut self,
-        set: SubsetRef<'_, <Output as Operand>::Dimension, <Output as Operand>::Primality>,
+        set: &SubsetImpl<<Output as Operand>::Dimension, <Output as Operand>::Primality>,
     ) -> Self {
-        self.mat = drop_csr_rows(self.mat, set.indices);
+        self.mat = drop_csr_rows(self.mat, &set.indices);
         self
     }
 }
@@ -735,7 +732,7 @@ mod tests {
 
         let d0_full = mesh.d::<0, Primal>();
         let boundary = mesh.boundary::<1>();
-        let d0_excluded = d0_full.clone().exclude_subset(boundary);
+        let d0_excluded = d0_full.clone().exclude_subset(&boundary);
         // this would also work with type inference:
         // let d0_excluded = d0_full.clone().exclude_subset(mesh.boundary());
         // but writing out the type explicitly to make sure it's correct
@@ -753,7 +750,7 @@ mod tests {
 
         let star_full = mesh.star::<2, Dual>();
         let boundary = mesh.boundary::<0>();
-        let star_excluded = star_full.clone().exclude_subset(boundary);
+        let star_excluded = star_full.clone().exclude_subset(&boundary);
         for (row_idx, (full_diag, excluded_diag)) in
             izip!(star_full.diagonal.iter(), star_excluded.diagonal.iter()).enumerate()
         {
@@ -769,7 +766,7 @@ mod tests {
         let comp_full: ComposedOperator<crate::Cochain<0, Primal>, crate::Cochain<0, Primal>> =
             mesh.star() * mesh.d() * mesh.star() * mesh.d();
         let boundary = mesh.boundary::<0>();
-        let comp_excluded = comp_full.clone().exclude_subset(boundary);
+        let comp_excluded = comp_full.clone().exclude_subset(&boundary);
         for (row_idx, (full_row, excluded_row)) in
             izip!(comp_full.mat.row_iter(), comp_excluded.mat.row_iter()).enumerate()
         {
