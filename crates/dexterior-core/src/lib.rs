@@ -23,3 +23,17 @@ pub mod gmsh;
 pub mod quadrature;
 
 pub(crate) mod permutation;
+
+// nalgebra re-exports of common types for convenience
+
+pub use nalgebra as na;
+/// Type alias for a 2D `nalgebra` vector.
+pub type Vec2 = na::Vector2<f64>;
+/// Type alias for a 2D `nalgebra` unit vector.
+pub type UnitVec2 = na::Unit<Vec2>;
+/// Type alias for a 3D `nalgebra` vector.
+pub type Vec3 = na::Vector3<f64>;
+/// Type alias for a 3D `nalgebra` unit vector.
+pub type UnitVec3 = na::Unit<Vec3>;
+/// Type alias for a general `nalgebra` unit vector.
+pub type Unit<T> = na::Unit<T>;

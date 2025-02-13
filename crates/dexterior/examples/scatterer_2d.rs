@@ -8,7 +8,6 @@
 
 use dex::visuals as dv;
 use dexterior as dex;
-use nalgebra as na;
 use std::f64::consts::{PI, TAU};
 
 type Pressure = dex::Cochain<0, dex::Dual>;
@@ -47,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let dt = 1. / 20.;
     let wave_speed = 1f64;
-    let wave_dir = na::Unit::new_normalize(na::Vector2::new(0., 1.));
+    let wave_dir = dex::Unit::new_normalize(dex::Vec2::new(0., 1.));
     let wavenumber = 2.;
     let wave_vector = wavenumber * *wave_dir;
     let wave_angular_vel = wavenumber * wave_speed;
@@ -55,11 +54,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // would be nice to have some of these parameters taken from the command line
     let show_inc_wave = true;
 
-    let eval_wave_pressure = |t: f64, pos: na::Vector2<f64>| -> f64 {
+    let eval_wave_pressure = |t: f64, pos: dex::Vec2| -> f64 {
         wave_angular_vel * f64::sin(wave_angular_vel * t - wave_vector.dot(&pos))
     };
-    let eval_wave_flux = |t: f64, pos: na::Vector2<f64>, dir: na::Unit<na::Vector2<f64>>| -> f64 {
-        let normal = na::Vector2::new(dir.y, -dir.x);
+    let eval_wave_flux = |t: f64, pos: dex::Vec2, dir: dex::UnitVec2| -> f64 {
+        let normal = dex::Vec2::new(dir.y, -dir.x);
         let vel = -wave_vector * f64::sin(wave_angular_vel * t - wave_vector.dot(&pos));
         vel.dot(&normal)
     };

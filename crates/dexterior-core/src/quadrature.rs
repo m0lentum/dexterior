@@ -22,13 +22,14 @@
 //! # Examples
 //!
 //! ```
-//! # use dexterior_core::{mesh::tiny_mesh_2d, quadrature::{Pointwise, GaussLegendre3}, Cochain, Primal};
+//! # use dexterior_core::{mesh::tiny_mesh_2d, quadrature::{Pointwise, GaussLegendre3}, Cochain, Primal, Vec2};
 //! # let mesh = tiny_mesh_2d();
-//! let my_scalar_field = |pos: nalgebra::Vector2<f64>| {
+//! // Vec2 is a convenience type alias for nalgebra::Vector2<f64>
+//! let my_scalar_field = |pos: Vec2| {
 //!     2. * pos.x.powi(5) + pos.y.powi(3)
 //! };
-//! let my_vector_field = |pos: nalgebra::Vector2<f64>| {
-//!     nalgebra::Vector2::new(pos.x * pos.y, 2. * pos.x)
+//! let my_vector_field = |pos: Vec2| {
+//!     Vec2::new(pos.x * pos.y, 2. * pos.x)
 //! };
 //! // create a 0-cochain by evaluating a scalar field at vertices
 //! let c0: Cochain<0, Primal> = mesh.integrate_cochain(Pointwise(my_scalar_field));
