@@ -5,6 +5,10 @@
 //! as a Dirichlet condition similarly to plane_wave_2d.rs.
 //! On the outer boundary an absorbing boundary condition
 //! is used to simulate the wave leaving the domain unimpeded.
+//!
+//! This one uses a higher-resolution mesh than the other acoustics examples
+//! and demonstrates an alternative material parameterization
+//! with wave speed expressed in terms of stiffness and density.
 
 use dex::visuals as dv;
 use dexterior as dex;
@@ -44,8 +48,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let absorbing_boundary = mesh.get_subset::<1>("10").expect("Subset not found");
     let scattering_boundary = mesh.get_subset::<1>("100").expect("Subset not found");
 
-    let dt = 1. / 20.;
-    let wave_speed = 1f64;
+    let dt = 1. / 90.;
+    let stiffness = 32.;
+    let density = 2.;
+    let wave_speed = f64::sqrt(stiffness / density);
+
     let wave_dir = dex::Unit::new_normalize(dex::Vec2::new(0., 1.));
     let wavenumber = 2.;
     let wave_vector = wavenumber * *wave_dir;
@@ -64,8 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let ops = Ops {
-        p_step: dt * wave_speed.powi(2) * mesh.star() * mesh.d(),
-        q_step: (dt * mesh.star() * mesh.d())
+        p_step: dt * stiffness * mesh.star() * mesh.d(),
+        q_step: (dt * density.recip() * mesh.star() * mesh.d())
             .exclude_subset(&absorbing_boundary)
             .exclude_subset(&scattering_boundary),
     };
@@ -80,9 +87,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let transition_time = wave_period;
     let easing = |t: f64| -> f64 {
-        if t >= transition_time {
-            return 1.;
-        }
         let sin_val = f64::sin((t / transition_time) * (PI / 2.0));
         (2.0 - sin_val) * sin_val
     };
@@ -91,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.run_animation(dv::Animation {
         mesh: &mesh,
         params: dv::AnimationParams {
-            color_map_range: Some(-4.0..4.0),
+            color_map_range: Some(-16.0..16.0),
             ..Default::default()
         },
         dt,
@@ -102,58 +106,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.t += dt;
 
             state.q += &ops.q_step * &state.p;
+
+            // scatterer boundary
+
             let easing_coef = easing(t_at_q);
-            let boundary_wave: Flux = mesh.integrate_cochain_partial(
+            mesh.integrate_overwrite(
+                &mut state.q,
                 &scattering_boundary,
                 dex::quadrature::GaussLegendre6(|v, d| easing_coef * eval_wave_flux(t_at_q, v, d)),
             );
-            for edge in mesh.simplices_in(&scattering_boundary) {
-                state.q[edge] = boundary_wave[edge];
-            }
 
-            // absorbing boundary.
-            // TODO: this could be done as an operator
-            // if we had a way to make custom operators
+            // absorbing boundary
+
+            let denom = wave_speed * density;
             for edge in mesh.simplices_in(&absorbing_boundary) {
                 let length = edge.volume();
                 // edges on the boundary always only border one volume element,
                 // and the adjacent dual vertex is the one corresponding to that element
                 let (orientation, coboundary) = edge.coboundary().next().unwrap();
-                state.q[edge] = -state.p[coboundary.dual()] * length * orientation as f64;
+                state.q[edge] = -state.p[coboundary.dual()] * length * orientation as f64 / denom;
             }
 
             state.p += &ops.p_step * &state.q;
         },
         draw: |state, draw| {
             // add the incident wave (which we don't simulate) to the visualization
-            let (total_p, total_q) = if show_inc_wave {
+            let total_p = if show_inc_wave {
                 let inc_p = mesh.integrate_cochain(dex::quadrature::Pointwise(|v| {
                     eval_wave_pressure(state.t, v)
                 }));
-                let inc_q = mesh.integrate_cochain(dex::quadrature::GaussLegendre6(|v, d| {
-                    eval_wave_flux(state.t, v, d)
-                }));
-                (&state.p + inc_p, &state.q + inc_q)
+                &state.p + inc_p
             } else {
-                (state.p.clone(), state.q.clone())
+                state.p.clone()
             };
 
             draw.triangle_colors_dual(&total_p);
-            draw.dual_wireframe(dv::WireframeParams {
-                width: dv::LineWidth::WorldUnits(0.01),
-                ..Default::default()
-            });
-            draw.wireframe(dv::WireframeParams {
-                width: dv::LineWidth::WorldUnits(0.015),
-                ..Default::default()
-            });
-            draw.flux_arrows(
-                &total_q,
-                dv::ArrowParams {
-                    scaling: dv::ArrowParams::default().scaling / 2.,
-                    width: dv::LineWidth::WorldUnits(0.015),
-                    ..Default::default()
+
+            draw.wireframe_subset(
+                dv::WireframeParams {
+                    width: dv::LineWidth::ScreenPixels(3.),
+                    color: dv::palette::named::DARKSLATEBLUE.into(),
                 },
+                &absorbing_boundary,
+            );
+            draw.wireframe_subset(
+                dv::WireframeParams {
+                    width: dv::LineWidth::ScreenPixels(3.),
+                    color: dv::palette::named::DARKRED.into(),
+                },
+                &scattering_boundary,
             );
             draw.axes_2d(dv::AxesParams {
                 minor_ticks: 4,
@@ -163,8 +164,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // both have tradeoffs, worldspace sizes respond well to window size changes
                 // but don't do well with different mesh sizes,
                 // whereas pixel sizes are the opposite
-                tick_length: 0.075,
-                width: dv::LineWidth::WorldUnits(0.02),
+                tick_length: 0.2,
+                tick_interval: 4.,
+                width: dv::LineWidth::ScreenPixels(3.),
+                // also TODO: this is a large mesh where padding in worldspace
+                // doesn't work very well;
+                // padding should instead be scaled in terms of pixels
+                padding: 1.,
                 ..Default::default()
             });
         },

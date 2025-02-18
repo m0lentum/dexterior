@@ -1,14 +1,17 @@
 // 2d square with a star-shaped hole for acoustic scatterer simulation
 
 Mesh.SaveAll = 1;
+Mesh.Smoothing = 100;
 
-lc = Pi / 8.0;
+scaling = 4.;
+size = scaling * Pi;
+lc = Pi / 12.0;
 
 // outer square
-Point(1) = {-Pi, -Pi, 0, lc};
-Point(2) = {Pi, -Pi, 0, lc};
-Point(3) = {Pi, Pi, 0, lc};
-Point(4) = {-Pi, Pi, 0, lc};
+Point(1) = {-size, -size, 0, lc};
+Point(2) = {size, -size, 0, lc};
+Point(3) = {size, size, 0, lc};
+Point(4) = {-size, size, 0, lc};
 Line(1) = {1, 2};
 Line(2) = {2, 3};
 Line(3) = {3, 4};
@@ -21,8 +24,8 @@ Physical Point(10) = {1, 2, 3, 4};
 Physical Curve(10) = {1, 2, 3, 4};
 
 // inner star
-r_outer = Pi / 2;
-r_inner = Pi / 6;
+r_outer = scaling * Pi / 2;
+r_inner = scaling * Pi / 6;
 points = 5;
 angle_incr = Pi * 2 / points;
 For i In {0 : points-1}
