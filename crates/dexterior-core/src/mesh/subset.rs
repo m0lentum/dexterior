@@ -16,7 +16,7 @@ pub type Subset<const DIM: usize, Primality> = SubsetImpl<na::Const<DIM>, Primal
 /// The subset type used internally by dexterior,
 /// with type generics enabling compile-time arithmetic for dimension.
 /// Prefer the more convenient type alias [`Subset`] in public APIs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct SubsetImpl<Dimension, Primality> {
     /// A bitset containing the indices of simplices present in the subset.
     ///
@@ -24,6 +24,13 @@ pub struct SubsetImpl<Dimension, Primality> {
     pub indices: fb::FixedBitSet,
     _marker: std::marker::PhantomData<(Dimension, Primality)>,
 }
+
+impl<const DIM: usize, Primality> PartialEq for SubsetImpl<na::Const<DIM>, Primality> {
+    fn eq(&self, other: &Self) -> bool {
+        self.indices.eq(&other.indices)
+    }
+}
+impl<const DIM: usize, Primality> Eq for SubsetImpl<na::Const<DIM>, Primality> {}
 
 impl<const DIM: usize, Primality> SubsetImpl<na::Const<DIM>, Primality> {
     #[inline]
