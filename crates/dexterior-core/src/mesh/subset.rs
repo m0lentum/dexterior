@@ -57,6 +57,35 @@ impl<const DIM: usize, Primality> SubsetImpl<na::Const<DIM>, Primality> {
             .collect();
         Self::new(bits)
     }
+
+    /// Take the intersection (i.e. set of cells that are in both)
+    /// of this subset with another of the same type.
+    #[inline]
+    pub fn intersection(&self, other: &Self) -> Self {
+        // fixedbitset's in-place operations are probably more efficient
+        // than collecting a new bitset from an iterator
+        let mut indices = self.indices.clone();
+        indices.intersect_with(&other.indices);
+        Self::new(indices)
+    }
+
+    /// Take the union (i.e. set of cells that are in one or the other)
+    /// of this subset with another of the same type.
+    #[inline]
+    pub fn union(&self, other: &Self) -> Self {
+        let mut indices = self.indices.clone();
+        indices.union_with(&other.indices);
+        Self::new(indices)
+    }
+
+    /// Take the difference (i.e. set of cells that are in `self` but not in `other`)
+    /// of this subset with another of the same type.
+    #[inline]
+    pub fn difference(&self, other: &Self) -> Self {
+        let mut indices = self.indices.clone();
+        indices.difference_with(&other.indices);
+        Self::new(indices)
+    }
 }
 
 impl<const DIM: usize> SubsetImpl<na::Const<DIM>, Primal>
