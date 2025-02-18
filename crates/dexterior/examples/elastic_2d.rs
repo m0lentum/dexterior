@@ -2,7 +2,6 @@ use std::f64::consts::PI;
 
 use dexterior as dex;
 use dexterior_visuals as dv;
-use nalgebra as na;
 
 type Pressure = dex::Cochain<0, dex::Dual>;
 type Flux = dex::Cochain<1, dex::Primal>;
@@ -43,6 +42,8 @@ struct MaterialArea {
     mu: f64,
     density: f64,
     stiffness: f64,
+    p_wave_speed: f64,
+    s_wave_speed: f64,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,6 +65,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let density = layer as f64;
             let stiffness = lambda + 2. * mu;
 
+            let p_wave_speed = (stiffness / density).sqrt();
+            let s_wave_speed = (mu / density).sqrt();
+
             MaterialArea {
                 verts,
                 edges,
@@ -71,25 +75,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mu,
                 density,
                 stiffness,
+                p_wave_speed,
+                s_wave_speed,
             }
         })
         .collect();
 
+    let boundary_edges = mesh.boundary::<1>();
     let bottom_edges = mesh.get_subset::<1>("990").expect("Subset not found");
     let bottom_verts = mesh.get_subset::<0>("990").expect("Subset not found");
     let bottom_adjacent_dual_verts =
         dex::Subset::from_cell_iter(mesh.simplices_in(&bottom_edges).map(|edge| {
-            let (_orientation, adjacent_tri) = edge.boundary().next().unwrap();
+            let (_orientation, adjacent_tri) = edge.coboundary().next().unwrap();
             adjacent_tri.dual()
         }));
 
     // other parameters
 
     let dt = 1. / 60.;
+    // source waves
     let pressure_angular_vel = 1.;
-    let pressure_wave_vector = na::Vector2::new(0., 1.);
+    let pressure_wave_vector = dex::Vec2::new(0., 2.);
     let shear_angular_vel = 1.;
-    let shear_wave_vector = na::Vector2::new(0., 1.);
+    let shear_wave_vector = dex::Vec2::new(-1., 1.);
 
     // operators
 
@@ -108,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let ops = Ops {
-        p_step: -dt * stiffness_scaling * mesh.star() * mesh.d(),
+        p_step: dt * stiffness_scaling * mesh.star() * mesh.d(),
         q_step_p: dt * density_scaling.clone() * mesh.star() * mesh.d(),
         q_step_w: -dt * density_scaling * mesh.d() * mesh.star(),
         w_step: dt * mu_scaling * mesh.d() * mesh.star(),
@@ -116,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // source terms
 
-    let pressure_source = |p: na::Vector2<f64>, t: f64| -> f64 {
+    let pressure_source = |p: dex::Vec2, t: f64| -> f64 {
         // only one pulse so we can see individual waves refracting
         // (TODO: turn into an absorbing boundary after that)
         if t > pressure_angular_vel * PI {
@@ -124,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         pressure_angular_vel * f64::sin(pressure_angular_vel * t - pressure_wave_vector.dot(&p))
     };
-    let shear_source = |p: na::Vector2<f64>, dir: na::Unit<na::Vector2<f64>>, t: f64| -> f64 {
+    let shear_source = |p: dex::Vec2, dir: dex::UnitVec2, t: f64| -> f64 {
         if t > shear_angular_vel * PI {
             return 0.;
         }
@@ -151,29 +159,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dt,
         state,
         step: |state| {
-            // TODO: t is very common in source terms
-            // and should probably be provided in the parameters to the step function here,
-            // instead of users having to include it in their state
-            state.t += dt;
             state.q += &ops.q_step_p * &state.p + &ops.q_step_w * &state.w;
             state.p += &ops.p_step * &state.q;
             state.w += &ops.w_step * &state.q;
             // sources on the bottom edge
-            // mesh.integrate_overwrite(
-            //     &mut state.p,
-            //     bottom_verts,
-            //     dex::quadrature::Pointwise(|p| pressure_source(p, state.t)),
-            // );
+            mesh.integrate_overwrite(
+                &mut state.p,
+                &bottom_adjacent_dual_verts,
+                dex::quadrature::Pointwise(|p| pressure_source(p, state.t)),
+            );
+            // TODO this doesn't actually work as a shear source
+            // for vertical wavevectors because flux over the horizontal edge is zero
             mesh.integrate_overwrite(
                 &mut state.q,
                 &bottom_edges,
                 dex::quadrature::GaussLegendre6(|p, d| shear_source(p, d, state.t)),
             );
+            // absorbing boundary
+            for layer in &layers {
+                let edges_here = boundary_edges.intersection(&layer.edges);
+                for edge in mesh.simplices_in(&edges_here) {
+                    let length = edge.volume();
+                    // pressure from the adjacent dual vertex
+                    let (orientation, tri) = edge.coboundary().next().unwrap();
+                    state.q[edge] =
+                        -state.p[tri.dual()] * length * orientation as f64 / layer.p_wave_speed;
+                    // shear from the dual 2-cells at the boundary vertices
+                    // (this is probably wrong, just done by analogy/intuition)
+                    for (orientation, vert) in edge.boundary() {
+                        state.q[edge] -= 0.5 * state.w[vert.dual()] * length * orientation as f64
+                            / layer.s_wave_speed;
+                    }
+                }
+            }
+
+            state.t += dt;
         },
         draw: |state, draw| {
             draw.axes_2d(dv::AxesParams::default());
-            // draw.vertex_colors(&state.p);
             draw.triangle_colors_dual(&state.p);
+            // draw.vertex_colors_dual(&state.w);
             draw.wireframe(dv::WireframeParams::default());
             draw.flux_arrows(
                 &state.q,
