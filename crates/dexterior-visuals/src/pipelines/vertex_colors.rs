@@ -15,6 +15,10 @@ pub(crate) struct VertexColorsPipeline {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: u32,
+    // for large meshes with more than u16::MAX vertices,
+    // indices need to be u32s.
+    // we adapt to this at runtime
+    index_fmt: wgpu::IndexFormat,
 }
 
 impl VertexColorsPipeline {
@@ -93,30 +97,24 @@ impl VertexColorsPipeline {
 
         // upload vertices and indices
 
-        let (vertices, indices): (Vec<[f32; 3]>, Vec<u16>) = match variant {
+        use wgpu::util::DeviceExt;
+
+        let vertices: Vec<[f32; 3]> = match variant {
             // when drawing 0-cochains, draw as a typical triangle mesh
-            VertexColorVariant::InterpolatedVertices => (
-                mesh.vertices
-                    .iter()
-                    .cloned()
-                    .map(|v| [v.x as f32, v.y as f32, 0.])
-                    .collect(),
-                mesh.indices::<2>().flatten().map(|i| *i as u16).collect(),
-            ),
+            VertexColorVariant::InterpolatedVertices => mesh
+                .vertices
+                .iter()
+                .cloned()
+                .map(|v| [v.x as f32, v.y as f32, 0.])
+                .collect(),
             // when drawing 2-cochains, vertices need to be duplicated
             // to draw the same flat color over a whole triangle
-            VertexColorVariant::FlatTriangles => (
-                mesh.simplices::<2>()
-                    .flat_map(|s| s.vertices().collect::<Vec<_>>())
-                    .map(|v| [v.x as f32, v.y as f32, 0.])
-                    .collect(),
-                // technically we wouldn't need an index buffer at all here,
-                // but having one lets us use the same drawing method for both cases
-                (0..3 * mesh.simplex_count::<2>() as u16).collect(),
-            ),
+            VertexColorVariant::FlatTriangles => mesh
+                .simplices::<2>()
+                .flat_map(|s| s.vertices().collect::<Vec<_>>())
+                .map(|v| [v.x as f32, v.y as f32, 0.])
+                .collect(),
         };
-
-        use wgpu::util::DeviceExt;
         let vertex_buf = ctx
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -125,20 +123,47 @@ impl VertexColorsPipeline {
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
-        let index_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label,
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+        let (index_buf, index_count, index_fmt) = {
+            let index_iter: Box<dyn Iterator<Item = usize>> = match variant {
+                VertexColorVariant::InterpolatedVertices => {
+                    Box::new(mesh.indices::<2>().flatten().cloned())
+                }
+                // this one had the vertices duplicated, so the indices are sequential
+                // (and therefore technically not required,
+                // but allow us to use the same drawing method for everything)
+                VertexColorVariant::FlatTriangles => Box::new(0..3 * mesh.simplex_count::<2>()),
+            };
+            // adapt to large meshes by making the indices u32s
+            if vertices.len() >= u16::MAX as usize {
+                let indices: Vec<u32> = index_iter.map(|i| i as u32).collect();
+                let buf = ctx
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label,
+                        contents: bytemuck::cast_slice(&indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+                (buf, indices.len() as u32, wgpu::IndexFormat::Uint32)
+            } else {
+                let indices: Vec<u16> = index_iter.map(|i| i as u16).collect();
+                let buf = ctx
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label,
+                        contents: bytemuck::cast_slice(&indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+                (buf, indices.len() as u32, wgpu::IndexFormat::Uint16)
+            }
+        };
 
         Self {
             variant,
             pipeline,
             vertex_buf,
             index_buf,
-            index_count: indices.len() as u32,
+            index_count,
+            index_fmt,
         }
     }
 
@@ -170,7 +195,7 @@ impl VertexColorsPipeline {
 
         pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
         pass.set_vertex_buffer(1, color_data.data_buf.slice(..));
-        pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint16);
+        pass.set_index_buffer(self.index_buf.slice(..), self.index_fmt);
 
         pass.set_bind_group(0, &res.frame_bind_group, &[]);
         pass.set_bind_group(1, &color_data.bind_group, &[]);
