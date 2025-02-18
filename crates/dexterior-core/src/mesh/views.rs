@@ -107,7 +107,7 @@ where
     na::Const<MESH_DIM>: na::DimNameSub<na::DimNameSum<SimplexDim, na::U1>>,
 {
     /// Iterate over the `k+1`-dimensional simplices on whose boundary this simplex lies.
-    pub fn coboundary(&self) -> BoundaryIter<'_, na::DimNameSum<SimplexDim, na::U1>, MESH_DIM> {
+    pub fn coboundary(self) -> BoundaryIter<'a, na::DimNameSum<SimplexDim, na::U1>, MESH_DIM> {
         BoundaryIter {
             mesh: self.mesh,
             index: 0,
