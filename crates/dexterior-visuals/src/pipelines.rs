@@ -157,7 +157,7 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
 
     /// Draw a dual 2-cochain by setting its values as colors
     /// at the corresponding primal mesh vertices.
-    pub fn vertex_colors_dual(&mut self, c: &dex::Cochain<2, dex::Primal>) {
+    pub fn vertex_colors_dual(&mut self, c: &dex::Cochain<2, dex::Dual>) {
         self.draw_vertex_colors(c.values.as_slice());
     }
 
