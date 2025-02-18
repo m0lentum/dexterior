@@ -44,15 +44,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let absorbing_boundary = mesh.get_subset::<1>("10").expect("Subset not found");
     let scattering_boundary = mesh.get_subset::<1>("100").expect("Subset not found");
 
-    let dt = 1. / 20.;
-    let wave_speed = 1f64;
+    let dt = 1. / 90.;
+    let wave_speed = 4.0f64;
     let wave_dir = dex::Unit::new_normalize(dex::Vec2::new(0., 1.));
     let wavenumber = 2.;
     let wave_vector = wavenumber * *wave_dir;
     let wave_angular_vel = wavenumber * wave_speed;
     let wave_period = TAU / wave_angular_vel;
     // would be nice to have some of these parameters taken from the command line
-    let show_inc_wave = true;
+    let show_inc_wave = false;
 
     let eval_wave_pressure = |t: f64, pos: dex::Vec2| -> f64 {
         wave_angular_vel * f64::sin(wave_angular_vel * t - wave_vector.dot(&pos))
@@ -80,9 +80,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let transition_time = wave_period;
     let easing = |t: f64| -> f64 {
-        if t >= transition_time {
-            return 1.;
+        if t >= 2. * transition_time {
+            return 0.;
         }
+        let t = if t < transition_time {
+            t
+        } else {
+            2. * transition_time - t
+        };
         let sin_val = f64::sin((t / transition_time) * (PI / 2.0));
         (2.0 - sin_val) * sin_val
     };
@@ -91,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.run_animation(dv::Animation {
         mesh: &mesh,
         params: dv::AnimationParams {
-            color_map_range: Some(-4.0..4.0),
+            color_map_range: Some(-8.0..8.0),
             ..Default::default()
         },
         dt,
@@ -119,7 +124,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // edges on the boundary always only border one volume element,
                 // and the adjacent dual vertex is the one corresponding to that element
                 let (orientation, coboundary) = edge.coboundary().next().unwrap();
-                state.q[edge] = -state.p[coboundary.dual()] * length * orientation as f64;
+                state.q[edge] =
+                    -state.p[coboundary.dual()] * length * orientation as f64 / wave_speed;
             }
 
             state.p += &ops.p_step * &state.q;
@@ -139,21 +145,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             draw.triangle_colors_dual(&total_p);
-            draw.dual_wireframe(dv::WireframeParams {
-                width: dv::LineWidth::WorldUnits(0.01),
-                ..Default::default()
-            });
-            draw.wireframe(dv::WireframeParams {
-                width: dv::LineWidth::WorldUnits(0.015),
-                ..Default::default()
-            });
-            draw.flux_arrows(
-                &total_q,
-                dv::ArrowParams {
-                    scaling: dv::ArrowParams::default().scaling / 2.,
-                    width: dv::LineWidth::WorldUnits(0.015),
-                    ..Default::default()
+
+            draw.wireframe_subset(
+                dv::WireframeParams {
+                    width: dv::LineWidth::ScreenPixels(3.),
+                    color: dv::palette::named::DARKSLATEBLUE.into(),
                 },
+                &absorbing_boundary,
+            );
+            draw.wireframe_subset(
+                dv::WireframeParams {
+                    width: dv::LineWidth::ScreenPixels(3.),
+                    color: dv::palette::named::DARKRED.into(),
+                },
+                &scattering_boundary,
             );
             draw.axes_2d(dv::AxesParams {
                 minor_ticks: 4,
@@ -163,8 +168,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // both have tradeoffs, worldspace sizes respond well to window size changes
                 // but don't do well with different mesh sizes,
                 // whereas pixel sizes are the opposite
-                tick_length: 0.075,
-                width: dv::LineWidth::WorldUnits(0.02),
+                tick_length: 0.2,
+                tick_interval: 4.,
+                width: dv::LineWidth::ScreenPixels(3.),
+                padding: 1.,
                 ..Default::default()
             });
         },
