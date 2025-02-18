@@ -93,6 +93,12 @@ impl<const DIM: usize, Primality> SubsetImpl<na::Const<DIM>, Primality> {
         indices.difference_with(&other.indices);
         Self::new(indices)
     }
+
+    /// Get the number of cells in this subset.
+    #[inline]
+    pub fn count(&self) -> usize {
+        self.indices.count_ones(..)
+    }
 }
 
 impl<const DIM: usize> SubsetImpl<na::Const<DIM>, Primal>
