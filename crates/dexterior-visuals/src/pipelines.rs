@@ -254,34 +254,72 @@ impl<'a, 'ctx: 'a> Painter<'a, 'ctx> {
     /// Draw a wireframe model of the simulation mesh.
     pub fn wireframe(&mut self, params: WireframeParams) {
         let params = params.line_params();
-        // TODO: caching of static lines to avoid re-uploading this every time
-        // (also same for axes)
-        let mut points: Vec<na::Vector3<f64>> =
-            Vec::with_capacity(self.mesh.simplex_count::<1>() * 2);
-        for edge in self.mesh.simplices::<1>() {
-            points.extend(edge.vertices().map(|v| na::Vector3::new(v.x, v.y, 0.)));
-        }
+        let points = Self::wireframe_points(self.mesh.simplices::<1>());
         self.lines(params, LineDrawingMode::List, &points);
+    }
+
+    /// Draw a wireframe of a subset of edges in the simulation mesh.
+    pub fn wireframe_subset(
+        &mut self,
+        params: WireframeParams,
+        subset: &dex::Subset<1, dex::Primal>,
+    ) {
+        let params = params.line_params();
+        let points = Self::wireframe_points(self.mesh.simplices_in(subset));
+        self.lines(params, LineDrawingMode::List, &points);
+    }
+
+    fn wireframe_points(simplices: dex::SimplexIter<'_, 1, 2>) -> Vec<na::Vector3<f64>> {
+        simplices
+            .flat_map(|edge| {
+                // collect into an array to avoid nested borrow problems
+                let mut vs = [na::Vector3::zeros(); 2];
+                for (idx, vert) in edge.vertices().enumerate() {
+                    vs[idx] = na::Vector3::new(vert.x, vert.y, 0.);
+                }
+                vs
+            })
+            .collect()
     }
 
     /// Draw a wireframe model of the dual mesh.
     pub fn dual_wireframe(&mut self, params: WireframeParams) {
         let params = params.line_params();
-        let mut points: Vec<na::Vector3<f64>> =
-            Vec::with_capacity(self.mesh.simplex_count::<1>() * 2);
-        for edge in self.mesh.simplices::<1>() {
-            let mut cob = edge.coboundary();
-            let p1 = cob.next().unwrap().1.circumcenter();
-            points.push(na::Vector3::new(p1.x, p1.y, 0.));
-            let p2 = match cob.next() {
-                Some((_, cob2)) => cob2.circumcenter(),
-                // boundary edges don't have a second coboundary simplex,
-                // instead the dual edge ends at the boundary
-                None => edge.circumcenter(),
-            };
-            points.push(na::Vector3::new(p2.x, p2.y, 0.));
-        }
+        let points = Self::dual_wireframe_points(self.mesh.dual_cells::<1>());
         self.lines(params, LineDrawingMode::List, &points);
+    }
+
+    /// Draw a wireframe of a subset of edges in the dual mesh.
+    pub fn dual_wireframe_subset(
+        &mut self,
+        subset: &dex::Subset<1, dex::Dual>,
+        params: WireframeParams,
+    ) {
+        let params = params.line_params();
+        let points = Self::dual_wireframe_points(self.mesh.dual_cells_in(subset));
+        self.lines(params, LineDrawingMode::List, &points);
+    }
+
+    fn dual_wireframe_points(cells: dex::DualCellIter<'_, 1, 2>) -> Vec<na::Vector3<f64>> {
+        cells
+            .flat_map(|dual_edge| {
+                let mut end_tris = dual_edge.dual().coboundary();
+                let start = end_tris.next().unwrap().1.circumcenter();
+                let start = na::Vector3::new(start.x, start.y, 0.);
+                let end = match end_tris.next() {
+                    Some((_, other_tri)) => other_tri.circumcenter(),
+                    // boundary edges don't have a second coboundary simplex,
+                    // instead the dual edge ends at the boundary
+                    // (iterating over these points should be added
+                    // to the dual cell iterator at some point,
+                    // but doing it properly in a dimension-agnostic way
+                    // takes a bit of effort)
+                    None => dual_edge.dual().circumcenter(),
+                };
+                let end = na::Vector3::new(end.x, end.y, 0.);
+                [start, end]
+            })
+            .collect()
     }
 
     /// Draw a set of axes around the mesh.
