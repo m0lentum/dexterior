@@ -240,6 +240,37 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
     }
 
+    /// Get a subset representing the boundary of a subset of `MESH_DIM`-simplices.
+    ///
+    /// These are the `MESH_DIM - 1`-simplices
+    /// whose coboundary only includes one of this subset's simplices.
+    pub fn subset_boundary(
+        &self,
+        subset: &Subset<MESH_DIM, Primal>,
+    ) -> SubsetImpl<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>
+    where
+        // funky trait bounds to get the iterators in the impl working,
+        // these shouldn't limit anything in practice
+        na::Const<MESH_DIM>: na::DimNameSub<na::U1>
+            + na::DimNameSub<na::Const<MESH_DIM>>
+            + na::DimNameSub<na::DimNameSum<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, na::U1>>
+            + na::DimNameSub<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>>,
+        na::DimNameDiff<na::Const<MESH_DIM>, na::U1>: na::DimNameAdd<na::U1>,
+    {
+        let simplices = self
+            .simplices_in::<MESH_DIM>(subset)
+            .flat_map(|s| s.boundary().map(|(_, b)| b))
+            .filter(|b| {
+                b.coboundary()
+                    .filter(|(_, cob)| subset.indices.contains(cob.index()))
+                    .count()
+                    == 1
+            });
+        SubsetImpl::<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>::from_simplex_iter(
+            simplices,
+        )
+    }
+
     /// Access the vertex indices for the given dimension of simplex
     /// as a chunked iterator where each element is a `DIM + 1`-length slice
     /// containing the indices of one simplex.
@@ -638,7 +669,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
     {
         let indices = self.simplices[DIM].custom_subsets.get(name)?.clone();
-        Some(Subset::new(indices))
+        Some(Subset::<DIM, Primal>::new(indices))
     }
 
     /// Store a named subset in the mesh data.

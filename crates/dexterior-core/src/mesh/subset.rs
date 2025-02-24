@@ -25,14 +25,20 @@ pub struct SubsetImpl<Dimension, Primality> {
     _marker: std::marker::PhantomData<(Dimension, Primality)>,
 }
 
-impl<const DIM: usize, Primality> PartialEq for SubsetImpl<na::Const<DIM>, Primality> {
+impl<Dim, Primality> PartialEq for SubsetImpl<Dim, Primality>
+where
+    Dim: na::DimName,
+{
     fn eq(&self, other: &Self) -> bool {
         self.indices.eq(&other.indices)
     }
 }
-impl<const DIM: usize, Primality> Eq for SubsetImpl<na::Const<DIM>, Primality> {}
+impl<Dim, Primality> Eq for SubsetImpl<Dim, Primality> where Dim: na::DimName {}
 
-impl<const DIM: usize, Primality> SubsetImpl<na::Const<DIM>, Primality> {
+impl<Dim, Primality> SubsetImpl<Dim, Primality>
+where
+    Dim: na::DimName,
+{
     #[inline]
     pub(super) fn new(indices: fb::FixedBitSet) -> Self {
         Self {
@@ -51,13 +57,13 @@ impl<const DIM: usize, Primality> SubsetImpl<na::Const<DIM>, Primality> {
     /// that pass the given predicate.
     pub fn from_predicate<const MESH_DIM: usize>(
         mesh: &SimplicialMesh<MESH_DIM>,
-        pred: impl Fn(SimplexView<na::Const<DIM>, MESH_DIM>) -> bool,
+        pred: impl Fn(SimplexView<Dim, MESH_DIM>) -> bool,
     ) -> Self
     where
-        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
     {
-        let bits: fb::FixedBitSet = mesh
-            .simplices::<DIM>()
+        let bits: fb::FixedBitSet = (0..mesh.simplex_count_dyn(Dim::USIZE))
+            .map(|i| mesh.get_simplex_by_index_impl(i))
             .enumerate()
             .filter(|(_, s)| pred(*s))
             .map(|(i, _)| i)
@@ -101,16 +107,16 @@ impl<const DIM: usize, Primality> SubsetImpl<na::Const<DIM>, Primality> {
     }
 }
 
-impl<const DIM: usize> SubsetImpl<na::Const<DIM>, Primal>
+impl<Dim> SubsetImpl<Dim, Primal>
 where
-    na::Const<DIM>: na::DimName,
+    Dim: na::DimName,
 {
     /// Create a subset containing the simplices yielded by an iterator.
     pub fn from_simplex_iter<'a, const MESH_DIM: usize>(
-        iter: impl Iterator<Item = SimplexView<'a, na::Const<DIM>, MESH_DIM>>,
+        iter: impl Iterator<Item = SimplexView<'a, Dim, MESH_DIM>>,
     ) -> Self
     where
-        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
     {
         let bits: fb::FixedBitSet = iter.map(|s| s.index()).collect();
         Self::new(bits)
@@ -118,12 +124,9 @@ where
 
     /// Check if the subset contains a given simplex.
     #[inline]
-    pub fn contains<const MESH_DIM: usize>(
-        &self,
-        simplex: SimplexView<'_, na::Const<DIM>, MESH_DIM>,
-    ) -> bool
+    pub fn contains<const MESH_DIM: usize>(&self, simplex: SimplexView<'_, Dim, MESH_DIM>) -> bool
     where
-        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
     {
         self.indices.contains(simplex.index())
     }
