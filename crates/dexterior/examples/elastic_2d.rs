@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::f64::consts::{PI, TAU};
 
 use dexterior as dex;
 use dexterior_visuals as dv;
@@ -37,6 +37,7 @@ struct MaterialArea {
     verts: dex::Subset<0, dex::Primal>,
     edges: dex::Subset<1, dex::Primal>,
     tris: dex::Subset<2, dex::Primal>,
+    boundary: dex::Subset<1, dex::Primal>,
     // lamè coefficients and other parameters of the material in this area
     // (stiffness encodes the lambda part of lamè coefficients)
     mu: f64,
@@ -52,34 +53,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // spatially varying material parameters from mesh physical groups
 
-    let layer_count = 8;
-    let layers: Vec<MaterialArea> = (1..=layer_count)
-        .map(|layer| {
-            let group_id = format!("{layer}");
-            let verts = mesh.get_subset::<0>(&group_id).expect("Subset not found");
-            let edges = mesh.get_subset::<1>(&group_id).expect("Subset not found");
-            let tris = mesh.get_subset::<2>(&group_id).expect("Subset not found");
+    let mut layers: Vec<MaterialArea> = Vec::new();
+    // loop until no more layers found
+    // instead of hardcoding layer count
+    // so that we can easily change this via gmsh parameters
+    let mut layer = 1;
+    loop {
+        let group_id = format!("{layer}");
+        let (Some(verts), Some(edges), Some(tris)) = (
+            mesh.get_subset::<0>(&group_id),
+            mesh.get_subset::<1>(&group_id),
+            mesh.get_subset::<2>(&group_id),
+        ) else {
+            break;
+        };
 
-            let lambda = 1.;
-            let mu = 1.;
-            let density = layer as f64;
-            let stiffness = lambda + 2. * mu;
+        let boundary = mesh.subset_boundary(&tris);
 
-            let p_wave_speed = (stiffness / density).sqrt();
-            let s_wave_speed = (mu / density).sqrt();
+        let lambda = 1.;
+        let mu = 1.;
+        let density = layer as f64;
+        let stiffness = lambda + 2. * mu;
 
-            MaterialArea {
-                verts,
-                edges,
-                tris,
-                mu,
-                density,
-                stiffness,
-                p_wave_speed,
-                s_wave_speed,
-            }
-        })
-        .collect();
+        let p_wave_speed = f64::sqrt(stiffness / density);
+        let s_wave_speed = f64::sqrt(mu / density);
+
+        layers.push(MaterialArea {
+            verts,
+            edges,
+            tris,
+            boundary,
+            mu,
+            density,
+            stiffness,
+            p_wave_speed,
+            s_wave_speed,
+        });
+        layer += 1;
+    }
 
     let boundary_edges = mesh.boundary::<1>();
     let bottom_edges = mesh.get_subset::<1>("990").expect("Subset not found");
@@ -92,12 +103,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // other parameters
 
-    let dt = 1. / 60.;
+    let dt = 1. / 120.;
     // source waves
-    let pressure_angular_vel = 1.;
-    let pressure_wave_vector = dex::Vec2::new(0., 2.);
-    let shear_angular_vel = 1.;
-    let shear_wave_vector = dex::Vec2::new(-1., 1.);
+    let pressure_wavenumber = 2.;
+    let pressure_angular_vel = layers[0].p_wave_speed * pressure_wavenumber;
+    let pressure_wave_vector =
+        pressure_wavenumber * *dex::Unit::new_normalize(dex::Vec2::new(1., 1.));
+    let shear_wavenumber = 1.;
+    let shear_angular_vel = layers[0].s_wave_speed * shear_wavenumber;
+    let shear_wave_vector = shear_wavenumber * *dex::Unit::new_normalize(dex::Vec2::new(0., 1.));
 
     // operators
 
@@ -124,18 +138,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // source terms
 
-    let pressure_source = |p: dex::Vec2, t: f64| -> f64 {
-        // only one pulse so we can see individual waves refracting
-        // (TODO: turn into an absorbing boundary after that)
-        if t > pressure_angular_vel * PI {
-            return 0.;
+    let p_pulse_time = TAU / pressure_angular_vel;
+    let s_pulse_time = TAU / shear_angular_vel;
+
+    // smoothstep easing to reduce spurious waves from discontinuities in the source
+    fn smoothstep(left: f64, right: f64, t: f64) -> f64 {
+        let x = f64::clamp((t - left) / (right - left), 0., 1.);
+        x * x * (3. - 2. * x)
+    }
+    let easing_time = p_pulse_time / 4.;
+    let p_easing = |t: f64| -> f64 {
+        if t < p_pulse_time / 2. {
+            smoothstep(0., easing_time, t)
+        } else {
+            1. - smoothstep(p_pulse_time - easing_time, p_pulse_time, t)
         }
-        pressure_angular_vel * f64::sin(pressure_angular_vel * t - pressure_wave_vector.dot(&p))
     };
-    let shear_source = |p: dex::Vec2, dir: dex::UnitVec2, t: f64| -> f64 {
-        if t > shear_angular_vel * PI {
+
+    // only send the source out from the middle of the region
+    // to avoid it reflecting off the sides and interfering with itself immediately
+    let source_x_range = 1.;
+    let x_smooth_range = 0.2;
+    let pressure_source = |pos: dex::Vec2, t: f64| -> f64 {
+        if pos.x.abs() > source_x_range {
             return 0.;
         }
+        p_easing(t)
+            * pressure_angular_vel
+            * f64::sin(pressure_angular_vel * t - pressure_wave_vector.dot(&pos))
+    };
+    let pressure_source_vec = |pos: dex::Vec2, dir: dex::UnitVec2, t: f64| -> f64 {
+        if pos.x.abs() > source_x_range {
+            return 0.;
+        }
+        let normal = dex::Vec2::new(dir.y, -dir.x);
+        let vel = -pressure_wave_vector
+            * f64::sin(pressure_angular_vel * t - pressure_wave_vector.dot(&pos));
+        p_easing(t) * vel.dot(&normal)
+    };
+    let shear_source_vec = |p: dex::Vec2, dir: dex::UnitVec2, t: f64| -> f64 {
         let vel = -shear_wave_vector * f64::sin(shear_angular_vel * t - shear_wave_vector.dot(&p));
         vel.dot(&dir)
     };
@@ -159,39 +200,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dt,
         state,
         step: |state| {
+            let p_pulse_active = state.t <= p_pulse_time;
+
             state.q += &ops.q_step_p * &state.p + &ops.q_step_w * &state.w;
-            state.p += &ops.p_step * &state.q;
-            state.w += &ops.w_step * &state.q;
-            // sources on the bottom edge
-            mesh.integrate_overwrite(
-                &mut state.p,
-                &bottom_adjacent_dual_verts,
-                dex::quadrature::Pointwise(|p| pressure_source(p, state.t)),
-            );
-            // TODO this doesn't actually work as a shear source
+            // TODO this doesn't work as a shear source
             // for vertical wavevectors because flux over the horizontal edge is zero
-            mesh.integrate_overwrite(
-                &mut state.q,
-                &bottom_edges,
-                dex::quadrature::GaussLegendre6(|p, d| shear_source(p, d, state.t)),
-            );
+            if p_pulse_active {
+                mesh.integrate_overwrite(
+                    &mut state.q,
+                    &bottom_edges,
+                    dex::quadrature::GaussLegendre6(|p, d| pressure_source_vec(p, d, state.t)),
+                );
+            }
             // absorbing boundary
             for layer in &layers {
-                let edges_here = boundary_edges.intersection(&layer.edges);
+                let edges_here = if p_pulse_active {
+                    boundary_edges
+                        .intersection(&layer.edges)
+                        .difference(&bottom_edges)
+                } else {
+                    boundary_edges.intersection(&layer.edges)
+                };
                 for edge in mesh.simplices_in(&edges_here) {
                     let length = edge.volume();
                     // pressure from the adjacent dual vertex
                     let (orientation, tri) = edge.coboundary().next().unwrap();
-                    state.q[edge] =
-                        -state.p[tri.dual()] * length * orientation as f64 / layer.p_wave_speed;
+                    state.q[edge] = -state.p[tri.dual()] * length * orientation as f64
+                        / (layer.p_wave_speed * layer.density);
                     // shear from the dual 2-cells at the boundary vertices
                     // (this is probably wrong, just done by analogy/intuition)
-                    for (orientation, vert) in edge.boundary() {
-                        state.q[edge] -= 0.5 * state.w[vert.dual()] * length * orientation as f64
-                            / layer.s_wave_speed;
-                    }
+                    // for (orientation, vert) in edge.boundary() {
+                    //     state.q[edge] -= 0.5 * state.w[vert.dual()] * length * orientation as f64
+                    //         / layer.s_wave_speed;
+                    // }
                 }
             }
+
+            state.p += &ops.p_step * &state.q;
+            state.w += &ops.w_step * &state.q;
 
             state.t += dt;
         },
@@ -199,14 +245,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             draw.axes_2d(dv::AxesParams::default());
             draw.triangle_colors_dual(&state.p);
             // draw.vertex_colors_dual(&state.w);
-            draw.wireframe(dv::WireframeParams::default());
-            draw.flux_arrows(
-                &state.q,
-                dv::ArrowParams {
-                    scaling: 0.3,
-                    ..Default::default()
-                },
-            );
+            draw.wireframe(dv::WireframeParams {
+                width: dv::LineWidth::ScreenPixels(1.),
+                ..Default::default()
+            });
+            for layer in &layers {
+                draw.wireframe_subset(
+                    dv::WireframeParams {
+                        width: dv::LineWidth::ScreenPixels(3.),
+                        ..Default::default()
+                    },
+                    &layer.boundary,
+                )
+            }
+            // draw.flux_arrows(
+            //     &state.q,
+            //     dv::ArrowParams {
+            //         ..Default::default()
+            //     },
+            // );
         },
     })?;
 
