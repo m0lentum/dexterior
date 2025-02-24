@@ -2,10 +2,11 @@
 
 Mesh.SaveAll = 1;
 
-lc = Pi / 14.0;
+lc = Pi / 32.0;
 hw = Pi;
-layer_height = Pi / 4.;
-layer_count = 8;
+full_height = Pi * 2;
+layer_count = 4;
+layer_height = full_height / layer_count;
 
 // points and horizontal lines
 For i In {0 : layer_count}
