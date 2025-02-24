@@ -45,7 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scattering_boundary = mesh.get_subset::<1>("100").expect("Subset not found");
 
     let dt = 1. / 90.;
-    let wave_speed = 4.0f64;
+    let stiffness = 64.;
+    let density = 4.;
+    let wave_speed = f64::sqrt(stiffness / density);
+
     let wave_dir = dex::Unit::new_normalize(dex::Vec2::new(0., 1.));
     let wavenumber = 2.;
     let wave_vector = wavenumber * *wave_dir;
@@ -64,8 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let ops = Ops {
-        p_step: dt * wave_speed.powi(2) * mesh.star() * mesh.d(),
-        q_step: (dt * mesh.star() * mesh.d())
+        p_step: dt * stiffness * mesh.star() * mesh.d(),
+        q_step: (dt * density.recip() * mesh.star() * mesh.d())
             .exclude_subset(&absorbing_boundary)
             .exclude_subset(&scattering_boundary),
     };
@@ -124,8 +127,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // edges on the boundary always only border one volume element,
                 // and the adjacent dual vertex is the one corresponding to that element
                 let (orientation, coboundary) = edge.coboundary().next().unwrap();
-                state.q[edge] =
-                    -state.p[coboundary.dual()] * length * orientation as f64 / wave_speed;
+                state.q[edge] = -state.p[coboundary.dual()] * length * orientation as f64
+                    / (wave_speed * density);
             }
 
             state.p += &ops.p_step * &state.q;
