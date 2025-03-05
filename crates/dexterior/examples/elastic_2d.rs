@@ -105,13 +105,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let dt = 1. / 120.;
     // source waves
+
+    // angle of wave propagation between 0 and 90 degrees
+    // (0 is horizontal, 90 vertical;
+    // this interval is assumed in boundary conditions)
+    let wave_angle_deg = 60.;
+    let wave_angle = wave_angle_deg * TAU / 360.;
+    let wave_dir = dex::Vec2::new(wave_angle.cos(), wave_angle.sin());
     let pressure_wavenumber = 2.;
     let pressure_angular_vel = layers[0].p_wave_speed * pressure_wavenumber;
-    let pressure_wave_vector =
-        pressure_wavenumber * *dex::Unit::new_normalize(dex::Vec2::new(1., 1.));
+    let pressure_wave_vector = pressure_wavenumber * wave_dir;
     let shear_wavenumber = 1.;
     let shear_angular_vel = layers[0].s_wave_speed * shear_wavenumber;
-    let shear_wave_vector = shear_wavenumber * *dex::Unit::new_normalize(dex::Vec2::new(0., 1.));
+    let shear_wave_vector = shear_wavenumber * wave_dir;
 
     // operators
 
@@ -141,40 +147,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let p_pulse_time = TAU / pressure_angular_vel;
     let s_pulse_time = TAU / shear_angular_vel;
 
-    // smoothstep easing to reduce spurious waves from discontinuities in the source
-    fn smoothstep(left: f64, right: f64, t: f64) -> f64 {
-        let x = f64::clamp((t - left) / (right - left), 0., 1.);
-        x * x * (3. - 2. * x)
-    }
-    let easing_time = p_pulse_time / 4.;
-    let p_easing = |t: f64| -> f64 {
-        if t < p_pulse_time / 2. {
-            smoothstep(0., easing_time, t)
-        } else {
-            1. - smoothstep(p_pulse_time - easing_time, p_pulse_time, t)
-        }
-    };
-
     // only send the source out from the middle of the region
     // to avoid it reflecting off the sides and interfering with itself immediately
-    let source_x_range = 1.;
-    let x_smooth_range = 0.2;
     let pressure_source = |pos: dex::Vec2, t: f64| -> f64 {
-        if pos.x.abs() > source_x_range {
-            return 0.;
-        }
-        p_easing(t)
-            * pressure_angular_vel
-            * f64::sin(pressure_angular_vel * t - pressure_wave_vector.dot(&pos))
+        pressure_angular_vel * f64::sin(pressure_angular_vel * t - pressure_wave_vector.dot(&pos))
     };
     let pressure_source_vec = |pos: dex::Vec2, dir: dex::UnitVec2, t: f64| -> f64 {
-        if pos.x.abs() > source_x_range {
+        // we only want one wave pulse,
+        // so for angled pulses we need to compute when it reaches the given point
+        let pulse_start_time = wave_dir.dot(&pos) / layers[0].p_wave_speed;
+        let pulse_end_time = pulse_start_time + p_pulse_time;
+        if t < pulse_start_time || t > pulse_end_time {
             return 0.;
         }
+
         let normal = dex::Vec2::new(dir.y, -dir.x);
         let vel = -pressure_wave_vector
             * f64::sin(pressure_angular_vel * t - pressure_wave_vector.dot(&pos));
-        p_easing(t) * vel.dot(&normal)
+        vel.dot(&normal)
     };
     let shear_source_vec = |p: dex::Vec2, dir: dex::UnitVec2, t: f64| -> f64 {
         let vel = -shear_wave_vector * f64::sin(shear_angular_vel * t - shear_wave_vector.dot(&p));
@@ -194,33 +184,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.run_animation(dv::Animation {
         mesh: &mesh,
         params: dv::AnimationParams {
-            color_map_range: Some(-0.5..0.5),
+            color_map_range: Some(-4.0..4.0),
             ..Default::default()
         },
         dt,
         state,
         step: |state| {
-            let p_pulse_active = state.t <= p_pulse_time;
-
             state.q += &ops.q_step_p * &state.p + &ops.q_step_w * &state.w;
             // TODO this doesn't work as a shear source
             // for vertical wavevectors because flux over the horizontal edge is zero
-            if p_pulse_active {
-                mesh.integrate_overwrite(
-                    &mut state.q,
-                    &bottom_edges,
-                    dex::quadrature::GaussLegendre6(|p, d| pressure_source_vec(p, d, state.t)),
-                );
-            }
+            mesh.integrate_overwrite(
+                &mut state.q,
+                &bottom_edges,
+                dex::quadrature::GaussLegendre6(|p, d| pressure_source_vec(p, d, state.t)),
+            );
             // absorbing boundary
             for layer in &layers {
-                let edges_here = if p_pulse_active {
-                    boundary_edges
-                        .intersection(&layer.edges)
-                        .difference(&bottom_edges)
-                } else {
-                    boundary_edges.intersection(&layer.edges)
-                };
+                // TODO turn bottom boundary into an absorbing one after pulse has been sent
+                let edges_here = boundary_edges
+                    .intersection(&layer.edges)
+                    .difference(&bottom_edges);
+
                 for edge in mesh.simplices_in(&edges_here) {
                     let length = edge.volume();
                     // pressure from the adjacent dual vertex

@@ -1,17 +1,18 @@
 // 2D domain with horizontal strips that can have different material parameters
 
 Mesh.SaveAll = 1;
+Mesh.Smoothing = 100;
 
 lc = Pi / 32.0;
-hw = Pi;
+width = 2*Pi;
 full_height = Pi * 2;
 layer_count = 4;
 layer_height = full_height / layer_count;
 
 // points and horizontal lines
 For i In {0 : layer_count}
-  pl = newp; Point(pl) = {-hw, i * layer_height, 0, lc};
-  pr = newp; Point(pr) = {hw, i * layer_height, 0, lc};
+  pl = newp; Point(pl) = {0, i * layer_height, 0, lc};
+  pr = newp; Point(pr) = {width, i * layer_height, 0, lc};
   points_l[i] = pl;
   points_r[i] = pr;
   l = newl; Line(l) = {pl, pr};
