@@ -23,7 +23,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msh_bytes = include_bytes!("./meshes/2d_square_pi_x_pi.msh");
     let mesh = dex::gmsh::load_trimesh_2d(msh_bytes)?;
 
-    let dt = 0.02;
+    let dt = 0.2;
+    let steps_per_dt = 100;
 
     let state = State {
         // start with a circular area centered near the bottom edge
@@ -54,13 +55,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dt,
         state,
         step: |state| {
-            // Lie derivative of a k-form expressed in terms of the interior product i_X
-            // as L_X = i_Xdω + di_Xω
-            // which in turn is expressed as i_X(ω) = (-1)^{k(n-k)} ★(★ω ⋀ X󰽫)
-            // for a 0-form only the first term i_Xdω exists
-            let star_d_zero = mesh.star() * mesh.d() * &state.zero;
-            let lie_d = mesh.star() * &mesh.wedge(&star_d_zero, &velocity_field);
-            state.zero -= dt * lie_d;
+            for _ in 0..steps_per_dt {
+                // Lie derivative of a k-form expressed in terms of the interior product i_X
+                // as L_X = i_Xdω + di_Xω
+                // which in turn is expressed as i_X(ω) = (-1)^{k(n-k)} ★(★ω ⋀ X󰽫)
+                // for a 0-form only the first term i_Xdω exists
+                let star_d_zero = mesh.star() * mesh.d() * &state.zero;
+                let lie_d = mesh.star() * &mesh.wedge(&star_d_zero, &velocity_field);
+                state.zero -= (dt / steps_per_dt as f64) * lie_d;
+            }
+
+            let max_val = state
+                .zero
+                .values
+                .iter()
+                .map(|v| v.abs())
+                .max_by(f64::total_cmp)
+                .unwrap();
+            println!("L^∞ norm: {max_val}");
         },
         draw: |state, draw| {
             draw.triangle_colors_dual(&state.zero);
