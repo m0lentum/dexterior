@@ -240,6 +240,37 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         }
     }
 
+    /// Create an empty subset.
+    ///
+    /// This isn't useful on its own,
+    /// but can be handy when taking unions of many subsets.
+    pub fn empty_subset<const DIM: usize, Primality>(&self) -> Subset<DIM, Primality>
+    where
+        Primality: MeshPrimality,
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        Subset::<DIM, Primality>::new(fb::FixedBitSet::new())
+    }
+
+    /// Create a subset containing every `DIM`-cell in the mesh.
+    ///
+    /// This isn't useful on its own,
+    /// but can be handy when taking intersections of many subsets.
+    pub fn full_subset<const DIM: usize, Primality>(&self) -> Subset<DIM, Primality>
+    where
+        Primality: MeshPrimality,
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        let simplex_count = if Primality::IS_PRIMAL {
+            self.simplex_count_dyn(DIM)
+        } else {
+            self.simplex_count_dyn(MESH_DIM - DIM)
+        };
+        let mut indices = fb::FixedBitSet::with_capacity(simplex_count);
+        indices.set_range(.., true);
+        Subset::<DIM, Primality>::new(indices)
+    }
+
     /// Get a subset representing the boundary of a subset of `MESH_DIM`-simplices.
     ///
     /// These are the `MESH_DIM - 1`-simplices
@@ -269,6 +300,26 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         SubsetImpl::<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>::from_simplex_iter(
             simplices,
         )
+    }
+
+    /// Take the complement of a subset, i.e. the cells not in that subset.
+    ///
+    /// Implementation note: this is a method of `mesh` instead of the subset itself
+    /// because subsets don't know the size of the whole mesh,
+    /// only how many indices are in themselves,
+    /// and therefore inverting one requires information from the mesh.
+    pub fn subset_complement<const DIM: usize, Primality>(
+        &self,
+        subset: &Subset<DIM, Primality>,
+    ) -> Subset<DIM, Primality>
+    where
+        Primality: MeshPrimality,
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        let mut indices = self.full_subset::<DIM, Primality>().indices;
+        indices.set_range(.., true);
+        indices.difference_with(&subset.indices);
+        Subset::<DIM, Primality>::new(indices)
     }
 
     /// Access the vertex indices for the given dimension of simplex

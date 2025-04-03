@@ -179,5 +179,19 @@ mod tests {
         assert_eq!(idx_subset.indices, pred_subset.indices);
         assert_eq!(pred_subset.indices, iter_subset.indices);
         itertools::assert_equal(idx_subset.indices.ones(), indices.iter().cloned());
+
+        let pred_complement = mesh.subset_complement(&pred_subset);
+        for edge in mesh.simplices::<1>() {
+            assert!(pred_subset.contains(edge) ^ pred_complement.contains(edge));
+        }
+
+        let full_subset = mesh.full_subset::<2, Dual>();
+        let empty_subset = mesh.empty_subset::<2, Dual>();
+        let empty_complement = mesh.subset_complement(&empty_subset);
+        for cell in mesh.dual_cells() {
+            assert!(full_subset.contains(cell));
+            assert!(!empty_subset.contains(cell));
+            assert!(empty_complement.contains(cell));
+        }
     }
 }
