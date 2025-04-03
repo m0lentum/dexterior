@@ -141,6 +141,7 @@ where
 /// This type can also be used to index into a dual [`Cochain`][crate::Cochain]
 /// of the corresponding dimension in a type-checked fashion.
 /// See [`SimplexView`] for an example.
+#[derive(Clone, Copy, Debug)]
 pub struct DualCellView<'a, CellDim, const MESH_DIM: usize> {
     pub(super) mesh: &'a SimplicialMesh<MESH_DIM>,
     pub(super) index: usize,
