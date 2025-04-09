@@ -174,6 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             });
         },
+        on_key: |_, _| {},
     })?;
 
     Ok(())

@@ -110,6 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             draw.axes_2d(dv::AxesParams::default());
         },
+        on_key: |_, _| {},
     })?;
 
     Ok(())

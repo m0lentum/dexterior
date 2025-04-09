@@ -109,14 +109,15 @@ impl RenderWindow {
     /// Thus you can only run one animation per program.
     /// This is a limitation that can be worked around
     /// and hopefully will be in the future, but requires some nontrivial work.
-    pub fn run_animation<State, StepFn, DrawFn>(
+    pub fn run_animation<State, StepFn, DrawFn, OnKeyFn>(
         &mut self,
-        anim: super::animation::Animation<State, StepFn, DrawFn>,
+        anim: super::animation::Animation<State, StepFn, DrawFn, OnKeyFn>,
     ) -> Result<(), winit::error::EventLoopError>
     where
         State: crate::AnimationState,
         StepFn: FnMut(&mut State),
         DrawFn: FnMut(&State, &mut crate::Painter),
+        OnKeyFn: FnMut(crate::KeyCode, &mut State),
     {
         // get the (x, y) bounds of the mesh to construct a camera
         // with a fitting viewport
@@ -479,11 +480,12 @@ impl<'a> RenderContext<'a> {
 //
 
 /// A `winit` app controlling the playback of an animation.
-struct AnimationApp<'mesh, State, StepFn, DrawFn>
+struct AnimationApp<'mesh, State, StepFn, DrawFn, OnKeyFn>
 where
     State: crate::AnimationState,
     StepFn: FnMut(&mut State),
     DrawFn: FnMut(&State, &mut crate::Painter),
+    OnKeyFn: FnMut(crate::KeyCode, &mut State),
 {
     // event loop proxy allows us to send wgpu context to the active window
     // after creating it in an async future
@@ -492,7 +494,7 @@ where
 
     window_params: WindowParams,
     window: Option<(ActiveRenderWindow, pl::Renderer)>,
-    anim: crate::Animation<'mesh, State, StepFn, DrawFn>,
+    anim: crate::Animation<'mesh, State, StepFn, DrawFn, OnKeyFn>,
     camera: Camera,
     // state for the timing of frames
     frame_start_t: Instant,
@@ -502,12 +504,13 @@ where
     next_state: State,
 }
 
-impl<'mesh, State, StepFn, DrawFn> winit::application::ApplicationHandler<CustomEvent>
-    for AnimationApp<'mesh, State, StepFn, DrawFn>
+impl<'mesh, State, StepFn, DrawFn, OnKeyFn> winit::application::ApplicationHandler<CustomEvent>
+    for AnimationApp<'mesh, State, StepFn, DrawFn, OnKeyFn>
 where
     State: crate::AnimationState,
     StepFn: FnMut(&mut State),
     DrawFn: FnMut(&State, &mut crate::Painter),
+    OnKeyFn: FnMut(crate::KeyCode, &mut State),
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = ActiveRenderWindow::create_window(event_loop, self.window_params);
@@ -619,6 +622,7 @@ where
                 if let (ElementState::Pressed, PhysicalKey::Code(code)) =
                     (event.state, event.physical_key)
                 {
+                    (self.anim.on_key)(code, &mut self.next_state);
                     // key mapping similar to matplotlib where applicable
                     match code {
                         KeyCode::KeyQ => {

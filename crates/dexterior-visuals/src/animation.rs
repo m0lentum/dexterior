@@ -42,11 +42,12 @@ use dexterior_core as dex;
 /// ```
 /// Note: this could be done with a macro, but it's a low-priority development,
 /// so for now you have to write this boilerplate by hand.
-pub struct Animation<'mesh, State, StepFn, DrawFn>
+pub struct Animation<'mesh, State, StepFn, DrawFn, OnKeyFn>
 where
     State: AnimationState,
     StepFn: FnMut(&mut State),
     DrawFn: FnMut(&State, &mut Painter),
+    OnKeyFn: FnMut(crate::KeyCode, &mut State),
 {
     /// The mesh that the simulation is derived from.
     ///
@@ -63,6 +64,12 @@ where
     pub step: StepFn,
     /// A function that draws the simulation state.
     pub draw: DrawFn,
+    /// A function that can modify the state based on keyboard input.
+    ///
+    /// This can be handy to add some interactivitity,
+    /// e.g. to toggle which variables are rendered
+    /// or reset the simulation to the beginning.
+    pub on_key: OnKeyFn,
 }
 
 /// Parameters to control aspects of an [`Animation`].
