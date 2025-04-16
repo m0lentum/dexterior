@@ -1,3 +1,12 @@
+//! A complex example making use of `dexterior`'s entire feature set.
+//! An elastic wave pulse propagates through a layered material
+//! with varying parameters.
+//!
+//! The elastic wave equation is split into two scalar wave equations
+//! (pressure and shear waves) coupled only at material boundaries.
+//! (TODO write down the equations and explain a bit more of the features being used
+//! before committing this one to main)
+
 use std::f64::consts::{PI, TAU};
 
 use dexterior as dex;
@@ -41,14 +50,13 @@ struct Ops {
     // operators that apply pressure interpolated onto primal vertices
     // into the shear wave and shear into the pressure wave.
     // these only have an effect at material boundaries
-    q_step_interp: dex::Op<dex::Cochain<0, dex::Primal>, Flux>,
+    q_step_interp: dex::Op<Shear, Flux>,
     w_step: dex::Op<Velocity, Shear>,
     v_step: dex::Op<Shear, Velocity>,
-    v_step_interp: dex::Op<dex::Cochain<0, dex::Primal>, Velocity>,
+    v_step_interp: dex::Op<Pressure, Velocity>,
 }
 
 struct MaterialArea {
-    verts: dex::Subset<0, dex::Primal>,
     edges: dex::Subset<1, dex::Primal>,
     tris: dex::Subset<2, dex::Primal>,
     boundary: dex::Subset<1, dex::Primal>,
@@ -74,8 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut layer = 1;
     loop {
         let group_id = format!("{layer}");
-        let (Some(verts), Some(edges), Some(tris)) = (
-            mesh.get_subset::<0>(&group_id),
+        let (Some(edges), Some(tris)) = (
             mesh.get_subset::<1>(&group_id),
             mesh.get_subset::<2>(&group_id),
         ) else {
@@ -93,7 +100,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let s_wave_speed = f64::sqrt(mu / density);
 
         layers.push(MaterialArea {
-            verts,
             edges,
             tris,
             boundary,
@@ -155,16 +161,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         l.mu
     });
 
+    let interp = dex::interpolate::dual_to_primal(&mesh);
+
     let ops = Ops {
         p_step: dt * stiffness_scaling * mesh.star() * mesh.d(),
         q_step: dt * density_scaling.clone() * mesh.star() * mesh.d(),
-        // the interpolated operators give zero everywhere except at material boundaries
+        // the interpolated operators have no effect everywhere except at material boundaries
+        // (and break at the mesh boundary due to truncated dual cells)
         // so we can safely exclude the rest
-        q_step_interp: (dt * density_scaling.clone() * mesh.d())
+        q_step_interp: (dt * density_scaling.clone() * mesh.d() * interp.clone())
             .exclude_subset(&mesh.subset_complement(&layer_boundary_edges)),
         w_step: dt * mu_scaling * mesh.star() * mesh.d(),
         v_step: dt * density_scaling.clone() * mesh.star() * mesh.d(),
-        v_step_interp: (dt * density_scaling * mesh.d())
+        v_step_interp: (dt * density_scaling * mesh.d() * interp)
             .exclude_subset(&mesh.subset_complement(&layer_boundary_edges)),
     };
 
@@ -251,41 +260,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dt,
         state,
         step: |state| {
-            // interpolated primal pressure and shear potentials,
-            // as averages from nearest dual vertices,
-            // that cause conversions between p- and s-waves at material boundaries
-            // (not sure if this interpolation makes complete sense yet;
-            // TODO: abstract it into something reusable)
-            let mut interpolated_p: dex::Cochain<0, dex::Primal> = mesh.new_zero_cochain();
-            let mut total_weights = vec![0.; mesh.simplex_count::<0>()];
-            for tri in mesh.simplices::<2>() {
-                for vert_idx in tri.vertex_indices() {
-                    // TODO: could this be made more accurate by weighting?
-                    // or by doing something else entirely?
-                    let weight = 1.;
-                    interpolated_p.values[vert_idx] += weight * state.p[tri.dual()];
-                    total_weights[vert_idx] += weight;
-                }
-            }
-            for (p, weight) in interpolated_p.values.iter_mut().zip(&total_weights) {
-                *p /= weight;
-            }
-
-            let mut interpolated_w: dex::Cochain<0, dex::Primal> = mesh.new_zero_cochain();
-            let mut total_weights = vec![0.; mesh.simplex_count::<0>()];
-            for tri in mesh.simplices::<2>() {
-                for vert_idx in tri.vertex_indices() {
-                    let weight = 1.;
-                    interpolated_w.values[vert_idx] += weight * state.w[tri.dual()];
-                    total_weights[vert_idx] += weight;
-                }
-            }
-            for (w, weight) in interpolated_w.values.iter_mut().zip(&total_weights) {
-                *w /= weight;
-            }
-
-            state.q += &ops.q_step * &state.p + &ops.q_step_interp * &interpolated_w;
-            state.v += &ops.v_step * &state.w + &ops.v_step_interp * &interpolated_p;
+            state.q += &ops.q_step * &state.p + &ops.q_step_interp * &state.w;
+            state.v += &ops.v_step * &state.w + &ops.v_step_interp * &state.p;
 
             // sources applied to the flux and velocity vectors
             if p_pulse_active_anywhere(state.t) {
@@ -311,6 +287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let length = edge.volume();
                     // pressure from the adjacent dual vertex
                     let (orientation, tri) = edge.coboundary().next().unwrap();
+                    // bottom boundary only becomes absorbing once the pulse has been sent
                     if !bottom_edges.contains(edge) || !p_pulse_active_anywhere(state.t) {
                         state.q[edge] = -state.p[tri.dual()] * length * orientation as f64
                             / (layer.p_wave_speed * layer.density);
