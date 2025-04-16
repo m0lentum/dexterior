@@ -329,7 +329,16 @@ impl<L, R> PartialEq for ComposedOperator<L, R> {
     }
 }
 
-// conversions from other operators
+// conversions from other operators and construction by matrix
+
+impl<Input, Output> From<nas::CsrMatrix<f64>> for ComposedOperator<Input, Output> {
+    fn from(mat: nas::CsrMatrix<f64>) -> Self {
+        Self {
+            mat,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
 
 impl<const D: usize, P> From<ExteriorDerivative<D, P>>
     for ComposedOperator<
