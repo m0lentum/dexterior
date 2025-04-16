@@ -41,6 +41,13 @@ pub struct SimplexView<'a, SimplexDim, const MESH_DIM: usize> {
     pub(super) _marker: std::marker::PhantomData<SimplexDim>,
 }
 
+impl<'a, SimplexDim, const MESH_DIM: usize> PartialEq for SimplexView<'a, SimplexDim, MESH_DIM> {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
+}
+impl<'a, SimplexDim, const MESH_DIM: usize> Eq for SimplexView<'a, SimplexDim, MESH_DIM> {}
+
 impl<'a, SimplexDim, const MESH_DIM: usize> SimplexView<'a, SimplexDim, MESH_DIM>
 where
     SimplexDim: na::DimName,
@@ -147,6 +154,13 @@ pub struct DualCellView<'a, CellDim, const MESH_DIM: usize> {
     pub(super) index: usize,
     pub(super) _marker: std::marker::PhantomData<CellDim>,
 }
+
+impl<'a, CellDim, const MESH_DIM: usize> PartialEq for DualCellView<'a, CellDim, MESH_DIM> {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
+}
+impl<'a, CellDim, const MESH_DIM: usize> Eq for DualCellView<'a, CellDim, MESH_DIM> {}
 
 impl<'a, CellDim, const MESH_DIM: usize> DualCellView<'a, CellDim, MESH_DIM>
 where
