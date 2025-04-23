@@ -1,6 +1,6 @@
 [package]
 name = "dexterior-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "Core crate of dexterior, a Discrete Exterior Calculus toolkit"
 authors.workspace = true
 edition.workspace = true

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0 - 2025-04-23
+
+### Features
+
+Core:
+- discrete wedge product
+- nonuniform scaling operator
+- `SimplicialMesh::integrate_overwrite`
+- new subset API where subsets are owned by the user
+- arithmetic operations for subsets (union, intersection, difference, complement)
+- construct operators directly from matrices
+- implement traits that make simplex & cell views easier to use (Copy, Eq)
+- dual-primal interpolation for 0-cochains on 2D meshes (experimental)
+
+Visuals:
+- text rendering
+- wireframes for subsets of edges
+- user-configurable keyboard interactions
+
+### Fixes
+
+Visuals:
+- correct type of input cochain in `Painter::vertex_colors_dual`
+- draw meshes with more than u16::MAX vertices
+
 ## 0.2.0 - 2024-10-02
 
 ### Features
