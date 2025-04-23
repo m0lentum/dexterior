@@ -33,3 +33,6 @@ required-features = ["visuals"]
 [[example]]
 name = "scatterer_2d"
 required-features = ["visuals"]
+[[example]]
+name = "elastic_2d"
+required-features = ["visuals"]
