@@ -1,6 +1,6 @@
 //! Utilities for interpolating cochain values on a mesh.
 
-use crate::{Cochain, ComposedOperator, Dual, DualCellView, Primal, SimplicialMesh};
+use crate::{Cochain, Dual, DualCellView, MatrixOperator, Primal, SimplicialMesh};
 
 use itertools::Itertools;
 use nalgebra as na;
@@ -18,7 +18,7 @@ use nalgebra_sparse as nas;
 /// where the dual cells corresponding to vertices are incomplete.
 pub fn dual_to_primal(
     mesh: &SimplicialMesh<2>,
-) -> ComposedOperator<Cochain<0, Dual>, Cochain<0, Primal>> {
+) -> MatrixOperator<Cochain<0, Dual>, Cochain<0, Primal>> {
     // reusable buffer to hold dual vertices and their weights for one dual cell
     let mut dual_vertices: Vec<(DualCellView<na::U0, 2>, f64)> = Vec::new();
     // matrix to hold finalized weight values
@@ -74,7 +74,7 @@ pub fn dual_to_primal(
     }
 
     let op_matrix = nas::CsrMatrix::from(&op_matrix);
-    ComposedOperator::from(op_matrix)
+    MatrixOperator::from(op_matrix)
 }
 
 //

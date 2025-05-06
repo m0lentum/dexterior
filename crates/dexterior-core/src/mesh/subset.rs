@@ -5,9 +5,9 @@ use super::{Dual, DualCellView, Primal, SimplexView, SimplicialMesh};
 
 /// A subset of cells in a mesh.
 ///
-/// Used to restrict operations to certain parts of the mesh,
-/// e.g. with [`ComposedOperator::exclude_subset`
-/// ][crate::operator::ComposedOperator::exclude_subset],
+/// Can be used to restrict operations to certain parts of the mesh,
+/// e.g. with [`MatrixOperator::exclude_subset`
+/// ][crate::MatrixOperator::exclude_subset],
 /// useful for boundary conditions and spatially varying parameters.
 ///
 /// You can iterate over the simplices in this set with [`SimplicialMesh::simplices_in`].

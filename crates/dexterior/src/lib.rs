@@ -166,9 +166,9 @@ Rather than operating on a cochain multiple times in succession with all these o
 it is desirable to first compose the operators into a single matrix.
 This can be done with multiplication syntax:
 ```
-# use dexterior::{mesh::tiny_mesh_3d, Primal, Dual, ComposedOperator};
+# use dexterior::{mesh::tiny_mesh_3d, Primal, Dual, MatrixOperator};
 # let mesh = tiny_mesh_3d();
-let divergence: ComposedOperator<_, _>
+let divergence: MatrixOperator<_, _>
     = mesh.star::<3, Dual>()
     * mesh.d::<2, Dual>()
     * mesh.star::<1, Primal>();
@@ -217,12 +217,12 @@ The earlier divergence example could be written like this:
 # let mesh = tiny_mesh_3d();
 let divergence = mesh.star() * mesh.d() * mesh.star::<1, Primal>();
 ```
-or like this, annotating the resulting [`ComposedOperator`]'s
+or like this, annotating the resulting [`MatrixOperator`]'s
 input and output types instead:
 ```
-# use dexterior::{mesh::tiny_mesh_3d, Cochain, Primal, ComposedOperator};
+# use dexterior::{mesh::tiny_mesh_3d, Cochain, Primal, MatrixOperator};
 # let mesh = tiny_mesh_3d();
-let divergence: ComposedOperator<Cochain<1, Primal>, Cochain<0, Primal>>
+let divergence: MatrixOperator<Cochain<1, Primal>, Cochain<0, Primal>>
     = mesh.star() * mesh.d() * mesh.star();
 ```
 A common pattern is to give [`Cochain`]s named type aliases

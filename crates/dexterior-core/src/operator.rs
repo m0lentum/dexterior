@@ -4,10 +4,7 @@ use fixedbitset as fb;
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
-use crate::{
-    cochain::CochainImpl,
-    mesh::{MeshPrimality, SubsetImpl},
-};
+use crate::{cochain::CochainImpl, mesh::SubsetImpl};
 use itertools::izip;
 
 //
@@ -44,87 +41,24 @@ pub trait Operand {
 // concrete operators
 //
 
-/// The exterior derivative, also known as the coboundary operator.
+/// A diagonal matrix operator.
 ///
-/// This operator is constructed from a mesh with [`SimplicialMesh::d`][crate::SimplicialMesh::d].
-/// See its documentation for details.
+/// See [`MatrixOperator`] and the [crate-level docs][crate#operators] for more details.
 #[derive(Clone, Debug)]
-pub struct ExteriorDerivative<const DIM: usize, Primality> {
-    mat: nas::CsrMatrix<f64>,
-    _marker: std::marker::PhantomData<Primality>,
-}
-
-impl<const DIM: usize, Primality> Operator for ExteriorDerivative<DIM, Primality>
-where
-    na::Const<DIM>: na::DimNameAdd<na::U1>,
-{
-    type Input = CochainImpl<na::Const<DIM>, Primality>;
-    type Output = CochainImpl<na::DimNameSum<na::Const<DIM>, na::U1>, Primality>;
-
-    fn apply(&self, input: &Self::Input) -> Self::Output {
-        Self::Output::from_values(&self.mat * input.values())
-    }
-
-    fn into_csr(self) -> nas::CsrMatrix<f64> {
-        self.mat
-    }
-}
-
-impl<const DIM: usize, Primality> ExteriorDerivative<DIM, Primality>
-where
-    na::Const<DIM>: na::DimNameAdd<na::U1>,
-{
-    /// Constructor exposed to crate only, used in `SimplicialMesh::d`.
-    pub(crate) fn new(mat: nas::CsrMatrix<f64>) -> Self {
-        Self {
-            mat,
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    /// Set a subset of elements in the output cochain to zero
-    /// when this operator is applied
-    /// (i.e. set a subset of rows in the operator matrix to zero).
-    /// useful for boundary conditions.
-    pub fn exclude_subset(
-        mut self,
-        set: &SubsetImpl<
-            <<Self as Operator>::Output as Operand>::Dimension,
-            <<Self as Operator>::Output as Operand>::Primality,
-        >,
-    ) -> Self {
-        self.mat = drop_csr_rows(self.mat, &set.indices);
-        self
-    }
-}
-
-impl<const DIM: usize, Primality> PartialEq for ExteriorDerivative<DIM, Primality> {
-    fn eq(&self, other: &Self) -> bool {
-        self.mat == other.mat
-    }
-}
-
-/// A diagonal Hodge star operator.
-///
-/// This operator is constructed from a mesh with [`SimplicialMesh::star`][crate::SimplicialMesh::star].
-/// See its documentation for details.
-#[derive(Clone, Debug)]
-pub struct HodgeStar<const DIM: usize, const MESH_DIM: usize, Primality> {
+pub struct DiagonalOperator<Input, Output> {
     // a diagonal vector is a more efficient form of storage than a CSR matrix.
     // this is converted to a matrix upon composition with other operators
     diagonal: na::DVector<f64>,
-    _marker: std::marker::PhantomData<Primality>,
+    _marker: std::marker::PhantomData<(Input, Output)>,
 }
 
-impl<const DIM: usize, const MESH_DIM: usize, Primality> Operator
-    for HodgeStar<DIM, MESH_DIM, Primality>
+impl<Input, Output> Operator for DiagonalOperator<Input, Output>
 where
-    na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
-    Primality: MeshPrimality,
+    Input: Operand,
+    Output: Operand,
 {
-    type Input = CochainImpl<na::Const<DIM>, Primality>;
-    type Output =
-        CochainImpl<na::DimNameDiff<na::Const<MESH_DIM>, na::Const<DIM>>, Primality::Opposite>;
+    type Input = Input;
+    type Output = Output;
 
     fn apply(&self, input: &Self::Input) -> Self::Output {
         let input = input.values();
@@ -147,19 +81,20 @@ where
     }
 }
 
-impl<const DIM: usize, const MESH_DIM: usize, Primality> HodgeStar<DIM, MESH_DIM, Primality>
-where
-    na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
-    Primality: MeshPrimality,
-{
-    /// Constructor exposed to crate only, used in `SimplicialMesh::star`.
-    pub(crate) fn new(diagonal: na::DVector<f64>) -> Self {
+impl<Input, Output> From<na::DVector<f64>> for DiagonalOperator<Input, Output> {
+    fn from(diagonal: na::DVector<f64>) -> Self {
         Self {
             diagonal,
             _marker: std::marker::PhantomData,
         }
     }
+}
 
+impl<Input, Output> DiagonalOperator<Input, Output>
+where
+    Input: Operand,
+    Output: Operand,
+{
     /// Set a subset of elements in the output cochain to zero
     /// when this operator is applied
     /// (i.e. set a subset of rows in the operator matrix to zero).
@@ -178,117 +113,43 @@ where
     }
 }
 
-impl<const DIM: usize, const MESH_DIM: usize, Primality> PartialEq
-    for HodgeStar<DIM, MESH_DIM, Primality>
-{
+impl<Input, Output> PartialEq for DiagonalOperator<Input, Output> {
     fn eq(&self, other: &Self) -> bool {
         self.diagonal == other.diagonal
     }
 }
 
-/// A nonuniform scaling that does not change a cochain's dimension or primality.
-/// Useful for spatially varying material parameters.
+/// A general sparse matrix operator,
+/// parameterized with the cochain types it consumes and produces.
 ///
-/// This operator is constructed from a mesh with [`SimplicialMesh::scaling`][crate::SimplicialMesh::scaling].
-/// See its documentation for details.
-#[derive(Clone, Debug)]
-pub struct Scaling<const DIM: usize, Primality> {
-    diagonal: na::DVector<f64>,
-    _marker: std::marker::PhantomData<Primality>,
-}
-
-impl<const DIM: usize, Primality> Operator for Scaling<DIM, Primality>
-where
-    Primality: MeshPrimality,
-{
-    type Input = CochainImpl<na::Const<DIM>, Primality>;
-    type Output = CochainImpl<na::Const<DIM>, Primality>;
-
-    // these methods are copied directly from Hodge star.
-    // if more diagonal operators are introduced (although this seems unlikely),
-    // consider further abstraction
-
-    fn apply(&self, input: &Self::Input) -> Self::Output {
-        let input = input.values();
-        let ret = na::DVector::from_iterator(
-            input.len(),
-            izip!(self.diagonal.iter(), input.iter()).map(|(&diag_val, &in_val)| diag_val * in_val),
-        );
-        Self::Output::from_values(ret)
-    }
-
-    fn into_csr(self) -> nas::CsrMatrix<f64> {
-        let mut csr = nas::CsrMatrix::identity(self.diagonal.len());
-        for (&diag, mat_diag) in self.diagonal.iter().zip(csr.values_mut()) {
-            *mat_diag = diag;
-        }
-        csr
-    }
-}
-
-impl<const DIM: usize, Primality> Scaling<DIM, Primality>
-where
-    Primality: MeshPrimality,
-{
-    /// Constructor exposed to crate only, used in `SimplicialMesh::star`.
-    pub(crate) fn new(diagonal: na::DVector<f64>) -> Self {
-        Self {
-            diagonal,
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    /// Set a subset of elements in the output cochain to zero
-    /// when this operator is applied
-    /// (i.e. set a subset of rows in the operator matrix to zero).
-    /// useful for boundary conditions.
-    pub fn exclude_subset(
-        mut self,
-        set: &SubsetImpl<
-            <<Self as Operator>::Output as Operand>::Dimension,
-            <<Self as Operator>::Output as Operand>::Primality,
-        >,
-    ) -> Self {
-        for row_idx in set.indices.ones() {
-            self.diagonal[row_idx] = 0.0;
-        }
-        self
-    }
-}
-
-impl<const DIM: usize, Primality> PartialEq for Scaling<DIM, Primality> {
-    fn eq(&self, other: &Self) -> bool {
-        self.diagonal == other.diagonal
-    }
-}
-
-/// A composition of one or more [`Operator`][self::Operator]s.
-///
-/// Operator composition can be done using multiplication syntax:
+/// This can be a composition of one or more [`MatrixOperator`]s and [`DiagonalOperator`]s.
+/// Composition can be done using multiplication syntax:
 /// ```
-/// # use dexterior_core::{Primal, ComposedOperator, mesh::tiny_mesh_2d};
+/// # use dexterior_core::{Primal, MatrixOperator, mesh::tiny_mesh_2d};
 /// # let mesh = tiny_mesh_2d();
-/// let op: ComposedOperator<_, _> = mesh.star() * mesh.d::<1, Primal>();
+/// let op: MatrixOperator<_, _> = mesh.star() * mesh.d::<1, Primal>();
 /// ```
-/// A free function [`compose`][self::compose] is also provided for the same purpose.
+/// A free function [`compose`] is also provided for the same purpose.
 ///
-/// A single operator ([`ExteriorDerivative`] or [`HodgeStar`])
-/// can also be converted into a ComposedOperator without actually composing it with anything
-/// using the std [`From`] trait.
-/// This enables writing all your operator types as `ComposedOperator<Input, Output>`,
+/// There is also a [`DiagonalOperator`] type for operators
+/// which are specifically diagonal matrices,
+/// which stores them in a somewhat more efficient format.
+/// When you don't need the efficiency and prefer notational convenience,
+/// these can also be converted into a MatrixOperator using the std [`From`] trait.
+/// This enables writing all your operator types as `MatrixOperator<Input, Output>`,
 /// a convenient pattern which can be written more concisely with the type alias [`Op`].
 /// See the [crate-level docs][crate#operators] and examples for details.
 #[derive(Clone, Debug)]
-pub struct ComposedOperator<Input, Output> {
+pub struct MatrixOperator<Input, Output> {
     mat: nas::CsrMatrix<f64>,
     _marker: std::marker::PhantomData<(Input, Output)>,
 }
 
-/// A type alias for [`ComposedOperator`]
+/// A type alias for [`MatrixOperator`]
 /// to make common patterns more convenient to type.
-pub type Op<Input, Output> = ComposedOperator<Input, Output>;
+pub type Op<Input, Output> = MatrixOperator<Input, Output>;
 
-impl<Input, Output> Operator for ComposedOperator<Input, Output>
+impl<Input, Output> Operator for MatrixOperator<Input, Output>
 where
     Input: Operand,
     Output: Operand,
@@ -305,7 +166,7 @@ where
     }
 }
 
-impl<Input, Output> ComposedOperator<Input, Output>
+impl<Input, Output> MatrixOperator<Input, Output>
 where
     Input: Operand,
     Output: Operand,
@@ -313,7 +174,6 @@ where
     /// Set a subset of elements in the output cochain to zero
     /// when this operator is applied
     /// (i.e. set a subset of rows in the operator matrix to zero).
-    /// useful for boundary conditions.
     pub fn exclude_subset(
         mut self,
         set: &SubsetImpl<<Output as Operand>::Dimension, <Output as Operand>::Primality>,
@@ -323,7 +183,7 @@ where
     }
 }
 
-impl<L, R> PartialEq for ComposedOperator<L, R> {
+impl<L, R> PartialEq for MatrixOperator<L, R> {
     fn eq(&self, other: &Self) -> bool {
         self.mat == other.mat
     }
@@ -331,7 +191,7 @@ impl<L, R> PartialEq for ComposedOperator<L, R> {
 
 // conversions from other operators and construction by matrix
 
-impl<Input, Output> From<nas::CsrMatrix<f64>> for ComposedOperator<Input, Output> {
+impl<Input, Output> From<nas::CsrMatrix<f64>> for MatrixOperator<Input, Output> {
     fn from(mat: nas::CsrMatrix<f64>) -> Self {
         Self {
             mat,
@@ -340,32 +200,11 @@ impl<Input, Output> From<nas::CsrMatrix<f64>> for ComposedOperator<Input, Output
     }
 }
 
-impl<const D: usize, P> From<ExteriorDerivative<D, P>>
-    for ComposedOperator<
-        <ExteriorDerivative<D, P> as Operator>::Input,
-        <ExteriorDerivative<D, P> as Operator>::Output,
-    >
+impl<Input, Output> From<DiagonalOperator<Input, Output>> for MatrixOperator<Input, Output>
 where
-    na::Const<D>: na::DimNameAdd<na::U1>,
+    DiagonalOperator<Input, Output>: Operator,
 {
-    fn from(d: ExteriorDerivative<D, P>) -> Self {
-        Self {
-            mat: d.mat,
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<const D: usize, const MD: usize, P> From<HodgeStar<D, MD, P>>
-    for ComposedOperator<
-        <HodgeStar<D, MD, P> as Operator>::Input,
-        <HodgeStar<D, MD, P> as Operator>::Output,
-    >
-where
-    na::Const<MD>: na::DimNameSub<na::Const<D>>,
-    P: MeshPrimality,
-{
-    fn from(s: HodgeStar<D, MD, P>) -> Self {
+    fn from(s: DiagonalOperator<Input, Output>) -> Self {
         Self {
             mat: s.into_csr(),
             _marker: std::marker::PhantomData,
@@ -388,12 +227,12 @@ where
 ///     mesh.star::<2, Primal>() * mesh.d::<1, Primal>(),
 /// );
 /// ```
-pub fn compose<Left, Right>(l: Left, r: Right) -> ComposedOperator<Right::Input, Left::Output>
+pub fn compose<Left, Right>(l: Left, r: Right) -> MatrixOperator<Right::Input, Left::Output>
 where
     Left: Operator<Input = Right::Output>,
     Right: Operator,
 {
-    ComposedOperator {
+    MatrixOperator {
         mat: l.into_csr() * r.into_csr(),
         _marker: std::marker::PhantomData,
     }
@@ -450,50 +289,26 @@ fn drop_csr_rows(mat: nas::CsrMatrix<f64>, set_to_drop: &fb::FixedBitSet) -> nas
 
 // compositions
 
-impl<const D: usize, P, Op> std::ops::Mul<Op> for ExteriorDerivative<D, P>
+impl<In, Out, Op> std::ops::Mul<Op> for DiagonalOperator<In, Out>
 where
-    na::Const<D>: na::DimNameAdd<na::U1>,
+    In: Operand,
+    Out: Operand,
     Op: Operator<Output = <Self as Operator>::Input>,
 {
-    type Output = ComposedOperator<Op::Input, <Self as Operator>::Output>;
+    type Output = MatrixOperator<Op::Input, <Self as Operator>::Output>;
 
     fn mul(self, rhs: Op) -> Self::Output {
         compose(self, rhs)
     }
 }
 
-impl<const D: usize, const MD: usize, P, Op> std::ops::Mul<Op> for HodgeStar<D, MD, P>
+impl<In, Out, Op> std::ops::Mul<Op> for MatrixOperator<In, Out>
 where
-    na::Const<MD>: na::DimNameSub<na::Const<D>>,
-    P: MeshPrimality,
+    In: Operand,
+    Out: Operand,
     Op: Operator<Output = <Self as Operator>::Input>,
 {
-    type Output = ComposedOperator<Op::Input, <Self as Operator>::Output>;
-
-    fn mul(self, rhs: Op) -> Self::Output {
-        compose(self, rhs)
-    }
-}
-
-impl<const D: usize, P, Op> std::ops::Mul<Op> for Scaling<D, P>
-where
-    P: MeshPrimality,
-    Op: Operator<Output = <Self as Operator>::Input>,
-{
-    type Output = ComposedOperator<Op::Input, <Self as Operator>::Output>;
-
-    fn mul(self, rhs: Op) -> Self::Output {
-        compose(self, rhs)
-    }
-}
-
-impl<I, O, Op> std::ops::Mul<Op> for ComposedOperator<I, O>
-where
-    I: Operand,
-    O: Operand,
-    Op: Operator<Output = <Self as Operator>::Input>,
-{
-    type Output = ComposedOperator<Op::Input, <Self as Operator>::Output>;
+    type Output = MatrixOperator<Op::Input, <Self as Operator>::Output>;
 
     fn mul(self, rhs: Op) -> Self::Output {
         compose(self, rhs)
@@ -502,37 +317,19 @@ where
 
 // scalar multiplication
 
-impl<const D: usize, P> std::ops::Mul<ExteriorDerivative<D, P>> for f64 {
-    type Output = ExteriorDerivative<D, P>;
+impl<Input, Output> std::ops::Mul<DiagonalOperator<Input, Output>> for f64 {
+    type Output = DiagonalOperator<Input, Output>;
 
-    fn mul(self, mut rhs: ExteriorDerivative<D, P>) -> Self::Output {
-        rhs.mat *= self;
-        rhs
-    }
-}
-
-impl<const D: usize, const MD: usize, P> std::ops::Mul<HodgeStar<D, MD, P>> for f64 {
-    type Output = HodgeStar<D, MD, P>;
-
-    fn mul(self, mut rhs: HodgeStar<D, MD, P>) -> Self::Output {
+    fn mul(self, mut rhs: DiagonalOperator<Input, Output>) -> Self::Output {
         rhs.diagonal *= self;
         rhs
     }
 }
 
-impl<const D: usize, P> std::ops::Mul<Scaling<D, P>> for f64 {
-    type Output = Scaling<D, P>;
+impl<L, R> std::ops::Mul<MatrixOperator<L, R>> for f64 {
+    type Output = MatrixOperator<L, R>;
 
-    fn mul(self, mut rhs: Scaling<D, P>) -> Self::Output {
-        rhs.diagonal *= self;
-        rhs
-    }
-}
-
-impl<L, R> std::ops::Mul<ComposedOperator<L, R>> for f64 {
-    type Output = ComposedOperator<L, R>;
-
-    fn mul(self, mut rhs: ComposedOperator<L, R>) -> Self::Output {
+    fn mul(self, mut rhs: MatrixOperator<L, R>) -> Self::Output {
         rhs.mat *= self;
         rhs
     }
@@ -540,79 +337,31 @@ impl<L, R> std::ops::Mul<ComposedOperator<L, R>> for f64 {
 
 // cochains
 
-impl<const D: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>> for ExteriorDerivative<D, P>
-where
-    na::Const<D>: na::DimNameAdd<na::U1>,
-{
-    type Output = <Self as Operator>::Output;
-
-    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
-        self.apply(rhs)
-    }
-}
-
 // impl for reference too, because the impl for value consumes the operator
 // and we don't usually want that
-impl<const D: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>> for &ExteriorDerivative<D, P>
+impl<Out, D, P> std::ops::Mul<&CochainImpl<D, P>> for DiagonalOperator<CochainImpl<D, P>, Out>
 where
-    na::Const<D>: na::DimNameAdd<na::U1>,
+    Out: Operand,
 {
-    type Output = <ExteriorDerivative<D, P> as Operator>::Output;
+    type Output = Out;
 
-    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<D, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
-impl<const D: usize, const MD: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>>
-    for HodgeStar<D, MD, P>
+impl<Out, D, P> std::ops::Mul<&CochainImpl<D, P>> for &DiagonalOperator<CochainImpl<D, P>, Out>
 where
-    na::Const<MD>: na::DimNameSub<na::Const<D>>,
-    P: MeshPrimality,
+    Out: Operand,
 {
-    type Output = <Self as Operator>::Output;
+    type Output = Out;
 
-    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
+    fn mul(self, rhs: &CochainImpl<D, P>) -> Self::Output {
         self.apply(rhs)
     }
 }
 
-impl<const D: usize, const MD: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>>
-    for &HodgeStar<D, MD, P>
-where
-    na::Const<MD>: na::DimNameSub<na::Const<D>>,
-    P: MeshPrimality,
-{
-    type Output = <HodgeStar<D, MD, P> as Operator>::Output;
-
-    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
-        self.apply(rhs)
-    }
-}
-
-impl<const D: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>> for Scaling<D, P>
-where
-    P: MeshPrimality,
-{
-    type Output = <Self as Operator>::Output;
-
-    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
-        self.apply(rhs)
-    }
-}
-
-impl<const D: usize, P> std::ops::Mul<&CochainImpl<na::Const<D>, P>> for &Scaling<D, P>
-where
-    P: MeshPrimality,
-{
-    type Output = <Scaling<D, P> as Operator>::Output;
-
-    fn mul(self, rhs: &CochainImpl<na::Const<D>, P>) -> Self::Output {
-        self.apply(rhs)
-    }
-}
-
-impl<O, D, P> std::ops::Mul<&CochainImpl<D, P>> for ComposedOperator<CochainImpl<D, P>, O>
+impl<O, D, P> std::ops::Mul<&CochainImpl<D, P>> for MatrixOperator<CochainImpl<D, P>, O>
 where
     O: Operand,
 {
@@ -623,7 +372,7 @@ where
     }
 }
 
-impl<O, D, P> std::ops::Mul<&CochainImpl<D, P>> for &ComposedOperator<CochainImpl<D, P>, O>
+impl<O, D, P> std::ops::Mul<&CochainImpl<D, P>> for &MatrixOperator<CochainImpl<D, P>, O>
 where
     O: Operand,
 {
@@ -772,7 +521,7 @@ mod tests {
 
         // composed
 
-        let comp_full: ComposedOperator<crate::Cochain<0, Primal>, crate::Cochain<0, Primal>> =
+        let comp_full: MatrixOperator<crate::Cochain<0, Primal>, crate::Cochain<0, Primal>> =
             mesh.star() * mesh.d() * mesh.star() * mesh.d();
         let boundary = mesh.boundary::<0>();
         let comp_excluded = comp_full.clone().exclude_subset(&boundary);

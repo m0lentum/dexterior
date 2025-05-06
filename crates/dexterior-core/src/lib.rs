@@ -16,7 +16,7 @@ pub use cochain::Cochain;
 
 pub mod operator;
 #[doc(inline)]
-pub use operator::{ComposedOperator, ExteriorDerivative, HodgeStar, Op, Operator};
+pub use operator::{DiagonalOperator, MatrixOperator, Op, Operator};
 
 pub mod gmsh;
 

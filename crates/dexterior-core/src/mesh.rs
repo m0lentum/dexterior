@@ -26,8 +26,9 @@ use std::{cell::OnceCell, collections::HashMap, rc::Rc};
 
 use crate::{
     cochain::{Cochain, CochainImpl},
-    operator::Scaling,
+    operator::MatrixOperator,
     quadrature::Quadrature,
+    DiagonalOperator,
 };
 
 /// A DEC mesh where the primal cells are all simplices
@@ -498,7 +499,12 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     /// Construct an exterior derivative operator.
     ///
     /// See the [crate-level docs][crate#operators] for usage information.
-    pub fn d<const DIM: usize, Primality>(&self) -> crate::ExteriorDerivative<DIM, Primality>
+    pub fn d<const DIM: usize, Primality>(
+        &self,
+    ) -> MatrixOperator<
+        CochainImpl<na::Const<DIM>, Primality>,
+        CochainImpl<na::DimNameSum<na::Const<DIM>, na::U1>, Primality>,
+    >
     where
         na::Const<DIM>: na::DimNameAdd<na::U1>,
         na::Const<MESH_DIM>:
@@ -523,13 +529,19 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
                 .collect(),
         )
         .unwrap();
-        crate::ExteriorDerivative::new(float_mat)
+        MatrixOperator::from(float_mat)
     }
 
     /// Construct a Hodge star operator.
     ///
     /// See the [crate-level docs][crate#operators] for usage information.
-    pub fn star<const DIM: usize, Primality>(&self) -> crate::HodgeStar<DIM, MESH_DIM, Primality>
+    #[allow(clippy::type_complexity)]
+    pub fn star<const DIM: usize, Primality>(
+        &self,
+    ) -> DiagonalOperator<
+        CochainImpl<na::Const<DIM>, Primality>,
+        CochainImpl<na::DimNameDiff<na::Const<MESH_DIM>, na::Const<DIM>>, Primality::Opposite>,
+    >
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
         Primality: MeshPrimality,
@@ -565,7 +577,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             diag
         };
 
-        crate::HodgeStar::new(diag)
+        DiagonalOperator::from(diag)
     }
 
     /// Create a nonuniform scaling matrix that assigns coefficients to elements
@@ -576,7 +588,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     pub fn scaling<const DIM: usize>(
         &self,
         elem_scaling: impl Fn(SimplexView<na::Const<DIM>, MESH_DIM>) -> f64,
-    ) -> Scaling<DIM, Primal>
+    ) -> DiagonalOperator<Cochain<DIM, Primal>, Cochain<DIM, Primal>>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
     {
@@ -584,7 +596,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             self.simplex_count::<DIM>(),
             self.simplices::<DIM>().map(elem_scaling),
         );
-        Scaling::new(diag)
+        DiagonalOperator::from(diag)
     }
 
     /// Create a nonuniform scaling matrix that assigns coefficients to elements
@@ -595,7 +607,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
     pub fn scaling_dual<const DIM: usize>(
         &self,
         elem_scaling: impl Fn(DualCellView<na::Const<DIM>, MESH_DIM>) -> f64,
-    ) -> Scaling<DIM, Dual>
+    ) -> DiagonalOperator<Cochain<DIM, Dual>, Cochain<DIM, Dual>>
     where
         na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
     {
@@ -603,7 +615,7 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             self.simplex_count_dyn(MESH_DIM - DIM),
             self.dual_cells::<DIM>().map(elem_scaling),
         );
-        Scaling::new(diag)
+        DiagonalOperator::from(diag)
     }
 
     /// Compute a discrete wedge product between two primal cochains.
@@ -838,19 +850,19 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
 // mesh primality generics
 //
 
-/// Marker type indicating a [`Cochain`][crate::Cochain]
+/// Marker type indicating a [`Cochain`]
 /// or [`operator`][crate::operator] corresponds to a primal mesh.
 #[derive(Clone, Copy, Debug)]
 pub struct Primal;
 
-/// Marker type indicating a [`Cochain`][crate::Cochain]
+/// Marker type indicating a [`Cochain`]
 /// or [`operator`][crate::operator] corresponds to a dual mesh.
 #[derive(Clone, Copy, Debug)]
 pub struct Dual;
 
 /// Trait allowing types and mesh methods to be generic
-/// on whether they operate on the primal ([`Primal`][self::Primal])
-/// or dual ([`Dual`][self::Dual]) mesh.
+/// on whether they operate on the primal ([`Primal`])
+/// or dual ([`Dual`]) mesh.
 ///
 /// Not intended to be implemented by users,
 /// so contents are hidden from docs.

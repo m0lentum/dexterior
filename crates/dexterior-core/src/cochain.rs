@@ -16,7 +16,7 @@ pub type Cochain<const DIM: usize, Primality> = CochainImpl<na::Const<DIM>, Prim
 ///
 /// This type cannot use const generics because they cannot currently
 /// do the compile-time generic arithmetic needed for operators.
-/// Thus, the more convenient alias [`Cochain`][self::Cochain]
+/// Thus, the more convenient alias [`Cochain`]
 /// is preferred for public APIs.
 #[derive(Clone)]
 pub struct CochainImpl<Dimension, Primality> {
