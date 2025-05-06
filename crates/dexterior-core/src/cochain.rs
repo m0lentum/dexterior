@@ -2,7 +2,7 @@
 
 use nalgebra as na;
 
-use crate::mesh::SubsetImpl;
+use crate::{mesh::SubsetImpl, DualCellView, SimplexView};
 
 /// A vector of values corresponding to
 /// a set of `k`-dimensional cells on a mesh.
@@ -26,6 +26,26 @@ pub struct CochainImpl<Dimension, Primality> {
     /// will cause a dimension mismatch with operators,
     /// leading to a panic when an operator is applied.
     /// Use with caution.
+    ///
+    /// Values can also be accessed by indexing
+    /// with a corresponding [`SimplexView`] / [`DualCellView`]:
+    /// ```
+    /// # use dexterior_core::{mesh::tiny_mesh_3d, Cochain, Primal, Dual};
+    /// # let mesh_3d = tiny_mesh_3d();
+    /// let c: Cochain<1, Primal> = mesh_3d.new_zero_cochain();
+    /// let c_dual: Cochain<2, Dual> = mesh_3d.star() * &c;
+    ///
+    /// let boundary_edges = mesh_3d.boundary::<1>();
+    /// for edge in mesh_3d.simplices_in(&boundary_edges) {
+    ///     let edge_val = c[edge];
+    ///     let dual_val = c_dual[edge.dual()];
+    ///     // ...compared to direct access
+    ///     let edge_val = c.values[edge.index()];
+    ///     let dual_val = c_dual.values[edge.dual().index()];
+    /// }
+    /// ```
+    /// This way of access has the benefit of being typechecked at compile time,
+    /// preventing you from accidentally indexing the wrong type of cochain.
     pub values: na::DVector<f64>,
     _marker: std::marker::PhantomData<(Dimension, Primality)>,
 }
@@ -100,7 +120,7 @@ impl<D, P> PartialEq for CochainImpl<D, P> {
 
 // Index with SimplexViews
 
-impl<'a, D, const MESH_DIM: usize> std::ops::Index<crate::SimplexView<'a, D, MESH_DIM>>
+impl<'a, D, const MESH_DIM: usize> std::ops::Index<SimplexView<'a, D, MESH_DIM>>
     for CochainImpl<D, crate::Primal>
 where
     D: na::DimName,
@@ -108,23 +128,23 @@ where
 {
     type Output = f64;
 
-    fn index(&self, simplex: crate::SimplexView<'a, D, MESH_DIM>) -> &Self::Output {
+    fn index(&self, simplex: SimplexView<'a, D, MESH_DIM>) -> &Self::Output {
         &self.values[simplex.index()]
     }
 }
 
-impl<'a, D, const MESH_DIM: usize> std::ops::IndexMut<crate::SimplexView<'a, D, MESH_DIM>>
+impl<'a, D, const MESH_DIM: usize> std::ops::IndexMut<SimplexView<'a, D, MESH_DIM>>
     for CochainImpl<D, crate::Primal>
 where
     D: na::DimName,
     na::Const<MESH_DIM>: na::DimNameSub<D>,
 {
-    fn index_mut(&mut self, simplex: crate::SimplexView<'a, D, MESH_DIM>) -> &mut Self::Output {
+    fn index_mut(&mut self, simplex: SimplexView<'a, D, MESH_DIM>) -> &mut Self::Output {
         &mut self.values[simplex.index()]
     }
 }
 
-impl<'a, D, const MESH_DIM: usize> std::ops::Index<crate::DualCellView<'a, D, MESH_DIM>>
+impl<'a, D, const MESH_DIM: usize> std::ops::Index<DualCellView<'a, D, MESH_DIM>>
     for CochainImpl<D, crate::Dual>
 where
     D: na::DimName,
@@ -132,18 +152,18 @@ where
 {
     type Output = f64;
 
-    fn index(&self, simplex: crate::DualCellView<'a, D, MESH_DIM>) -> &Self::Output {
+    fn index(&self, simplex: DualCellView<'a, D, MESH_DIM>) -> &Self::Output {
         &self.values[simplex.index()]
     }
 }
 
-impl<'a, D, const MESH_DIM: usize> std::ops::IndexMut<crate::DualCellView<'a, D, MESH_DIM>>
+impl<'a, D, const MESH_DIM: usize> std::ops::IndexMut<DualCellView<'a, D, MESH_DIM>>
     for CochainImpl<D, crate::Dual>
 where
     D: na::DimName,
     na::Const<MESH_DIM>: na::DimNameSub<D>,
 {
-    fn index_mut(&mut self, simplex: crate::DualCellView<'a, D, MESH_DIM>) -> &mut Self::Output {
+    fn index_mut(&mut self, simplex: DualCellView<'a, D, MESH_DIM>) -> &mut Self::Output {
         &mut self.values[simplex.index()]
     }
 }
