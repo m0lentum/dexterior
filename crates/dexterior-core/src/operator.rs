@@ -4,7 +4,7 @@ use fixedbitset as fb;
 use nalgebra as na;
 use nalgebra_sparse as nas;
 
-use crate::{cochain::CochainImpl, mesh::SubsetImpl};
+use crate::{cochain::CochainImpl, mesh::SubsetImpl, Dual, DualCellView, Primal, SimplexView};
 use itertools::izip;
 
 //
@@ -46,9 +46,31 @@ pub trait Operand {
 /// See [`MatrixOperator`] and the [crate-level docs][crate#operators] for more details.
 #[derive(Clone, Debug)]
 pub struct DiagonalOperator<Input, Output> {
-    // a diagonal vector is a more efficient form of storage than a CSR matrix.
-    // this is converted to a matrix upon composition with other operators
-    diagonal: na::DVector<f64>,
+    /// The diagonal values of the matrix, stored as a vector.
+    ///
+    /// Modifying the dimension of this vector will result in runtime errors.
+    ///
+    /// Values of the diagonal can also be accessed by indexing
+    /// with [`SimplexView`]s / [`DualCellView`]s
+    /// corresponding to the output type of the operator:
+    /// ```
+    /// # use dexterior_core::{mesh::tiny_mesh_3d, DiagonalOperator, Cochain, Primal, Dual};
+    /// # let mesh_3d = tiny_mesh_3d();
+    /// type P = Cochain<1, Primal>;
+    /// type D = Cochain<2, Dual>;
+    ///
+    /// let star: DiagonalOperator<P, D> = mesh_3d.star();
+    /// let star_dual: DiagonalOperator<D, P> = mesh_3d.star();
+    ///
+    /// for edge in mesh_3d.simplices::<1>() {
+    ///     // these stars are inverses of each other so they should multiply to 1
+    ///     assert!((star_dual[edge] * star[edge.dual()] - 1.).abs() < 1e-6);
+    /// }
+    /// ```
+    /// This can be handy to e.g. retrieve values of material parameters
+    /// stored in an operator created with
+    /// [`SimplicialMesh::scaling`][crate::SimplicialMesh::scaling].
+    pub diagonal: na::DVector<f64>,
     _marker: std::marker::PhantomData<(Input, Output)>,
 }
 
@@ -119,6 +141,56 @@ impl<Input, Output> PartialEq for DiagonalOperator<Input, Output> {
     }
 }
 
+// convenient indexing with simplex / dual cell views
+
+impl<'a, In, OutDim, const MESH_DIM: usize> std::ops::Index<SimplexView<'a, OutDim, MESH_DIM>>
+    for DiagonalOperator<In, CochainImpl<OutDim, Primal>>
+where
+    OutDim: na::DimName,
+    na::Const<MESH_DIM>: na::DimNameSub<OutDim>,
+{
+    type Output = f64;
+
+    fn index(&self, index: SimplexView<'a, OutDim, MESH_DIM>) -> &Self::Output {
+        &self.diagonal[index.index()]
+    }
+}
+
+impl<'a, In, OutDim, const MESH_DIM: usize> std::ops::IndexMut<SimplexView<'a, OutDim, MESH_DIM>>
+    for DiagonalOperator<In, CochainImpl<OutDim, Primal>>
+where
+    OutDim: na::DimName,
+    na::Const<MESH_DIM>: na::DimNameSub<OutDim>,
+{
+    fn index_mut(&mut self, index: SimplexView<'a, OutDim, MESH_DIM>) -> &mut Self::Output {
+        &mut self.diagonal[index.index()]
+    }
+}
+
+impl<'a, In, OutDim, const MESH_DIM: usize> std::ops::Index<DualCellView<'a, OutDim, MESH_DIM>>
+    for DiagonalOperator<In, CochainImpl<OutDim, Dual>>
+where
+    OutDim: na::DimName,
+    na::Const<MESH_DIM>: na::DimNameSub<OutDim>,
+{
+    type Output = f64;
+
+    fn index(&self, index: DualCellView<'a, OutDim, MESH_DIM>) -> &Self::Output {
+        &self.diagonal[index.index()]
+    }
+}
+
+impl<'a, In, OutDim, const MESH_DIM: usize> std::ops::IndexMut<DualCellView<'a, OutDim, MESH_DIM>>
+    for DiagonalOperator<In, CochainImpl<OutDim, Dual>>
+where
+    OutDim: na::DimName,
+    na::Const<MESH_DIM>: na::DimNameSub<OutDim>,
+{
+    fn index_mut(&mut self, index: DualCellView<'a, OutDim, MESH_DIM>) -> &mut Self::Output {
+        &mut self.diagonal[index.index()]
+    }
+}
+
 /// A general sparse matrix operator,
 /// parameterized with the cochain types it consumes and produces.
 ///
@@ -141,7 +213,11 @@ impl<Input, Output> PartialEq for DiagonalOperator<Input, Output> {
 /// See the [crate-level docs][crate#operators] and examples for details.
 #[derive(Clone, Debug)]
 pub struct MatrixOperator<Input, Output> {
-    mat: nas::CsrMatrix<f64>,
+    /// The underlying matrix, exposed for potential use cases
+    /// that need to modify or read matrix values directly.
+    ///
+    /// Modifying the dimensions of this matrix will result in runtime errors.
+    pub mat: nas::CsrMatrix<f64>,
     _marker: std::marker::PhantomData<(Input, Output)>,
 }
 
