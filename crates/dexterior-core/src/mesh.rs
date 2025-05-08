@@ -22,7 +22,10 @@ use nalgebra as na;
 use nalgebra_sparse as nas;
 
 use itertools::izip;
-use std::{cell::OnceCell, collections::HashMap, rc::Rc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+};
 
 use crate::{
     cochain::{Cochain, CochainImpl},
@@ -35,9 +38,10 @@ use crate::{
 /// (points, line segments, triangles, tetrahedra etc).
 #[derive(Clone, Debug)]
 pub struct SimplicialMesh<const DIM: usize> {
-    /// Vertices stored in a Rc so that they can be accessed from multiple locations.
+    /// Vertices stored in an Arc so that they can be accessed from multiple locations
+    /// and on multiple threads.
     /// Mutation after creation is not supported.
-    pub vertices: Rc<[na::SVector<f64, DIM>]>,
+    pub vertices: Arc<[na::SVector<f64, DIM>]>,
     /// Storage for each dimension of simplex in the mesh.
     pub(crate) simplices: Vec<SimplexCollection<DIM>>,
     bounds: BoundingBox<DIM>,
@@ -60,7 +64,7 @@ pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     pub indices: Vec<usize>,
     /// map from the vertex indices of a simplex to its index in this collection.
     /// constructed lazily in `SimplicialMesh::find_simplex_index`.
-    index_map: OnceCell<HashMap<Vec<usize>, usize>>,
+    index_map: OnceLock<HashMap<Vec<usize>, usize>>,
     /// matrix where the rows correspond to DIM-simplices,
     /// the columns to (DIM-1) simplices,
     /// and the values of -1 or 1 to the relative orientation of the boundary.
@@ -77,14 +81,14 @@ pub(crate) struct SimplexCollection<const MESH_DIM: usize> {
     mesh_boundary: fb::FixedBitSet,
     /// user-defined subsets, e.g. physical groups from gmsh meshes.
     custom_subsets: HashMap<String, fb::FixedBitSet>,
-    /// circumcenters and barycenters Rc'd so that 0-simplices
+    /// circumcenters and barycenters Arc'd so that 0-simplices
     /// can have the mesh vertices here without duplicating data
-    circumcenters: Rc<[na::SVector<f64, MESH_DIM>]>,
-    barycenters: Rc<[na::SVector<f64, MESH_DIM>]>,
+    circumcenters: Arc<[na::SVector<f64, MESH_DIM>]>,
+    barycenters: Arc<[na::SVector<f64, MESH_DIM>]>,
     /// barycentric differentials are not always needed
     /// and take a fair bit of memory (`simplex_size` N-vectors per simplex),
     /// so they're computed lazily on first access
-    barycentric_differentials: OnceCell<Vec<na::SVector<f64, MESH_DIM>>>,
+    barycentric_differentials: OnceLock<Vec<na::SVector<f64, MESH_DIM>>>,
     /// unsigned volumes of the primal simplices
     volumes: Vec<f64>,
     /// unsigned volumes of the corresponding dual simplices
@@ -104,14 +108,14 @@ impl<const DIM: usize> Default for SimplexCollection<DIM> {
         Self {
             simplex_size: 0,
             indices: Vec::new(),
-            index_map: OnceCell::new(),
+            index_map: OnceLock::new(),
             boundary_map: nas::CsrMatrix::zeros(0, 0),
             coboundary_map: nas::CsrMatrix::zeros(0, 0),
             mesh_boundary: fb::FixedBitSet::default(),
             custom_subsets: HashMap::new(),
-            circumcenters: Rc::from([]),
-            barycenters: Rc::from([]),
-            barycentric_differentials: OnceCell::new(),
+            circumcenters: Arc::from([]),
+            barycenters: Arc::from([]),
+            barycentric_differentials: OnceLock::new(),
             volumes: Vec::new(),
             dual_volumes: Vec::new(),
             orientations: Vec::new(),

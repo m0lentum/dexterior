@@ -2,7 +2,7 @@ use nalgebra as na;
 use nalgebra_sparse as nas;
 
 use itertools::{iproduct, izip, Itertools};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use super::{BoundingBox, SimplexCollection, SimplicialMesh};
 
@@ -15,7 +15,7 @@ pub fn build_mesh<const MESH_DIM: usize>(
     vertices: Vec<na::SVector<f64, MESH_DIM>>,
     indices: Vec<usize>,
 ) -> SimplicialMesh<MESH_DIM> {
-    let vertices: Rc<[na::SVector<f64, MESH_DIM>]> = Rc::from(vertices);
+    let vertices: Arc<[na::SVector<f64, MESH_DIM>]> = Arc::from(vertices);
     // collection for every dimension of simplex, including 0
     // (even though those are just the vertices),
     // for unified storage and iteration
@@ -26,7 +26,7 @@ pub fn build_mesh<const MESH_DIM: usize>(
         })
         .collect();
     // circumcenters will go inside the simplex collections,
-    // but they need to be constructed as Vecs first and transferred into Rcs at the end
+    // but they need to be constructed as Vecs first and transferred into Arcs at the end
     let mut circumcenters: [Vec<na::SVector<f64, MESH_DIM>>; MESH_DIM] =
         std::array::from_fn(|_| Vec::new());
 
@@ -331,10 +331,10 @@ pub fn build_mesh<const MESH_DIM: usize>(
         }
     }
 
-    // move the circumcenters into the Rcs in SimplexCollections
+    // move the circumcenters into the Arcs in SimplexCollections
 
     for (simplices, circumcenters) in izip!(&mut simplices[1..], circumcenters) {
-        simplices.circumcenters = Rc::from(circumcenters);
+        simplices.circumcenters = Arc::from(circumcenters);
     }
 
     //
@@ -357,7 +357,7 @@ pub fn build_mesh<const MESH_DIM: usize>(
                     / simplices.simplex_size as f64
             })
             .collect();
-        simplices.barycenters = Rc::from(barycenters);
+        simplices.barycenters = Arc::from(barycenters);
     }
 
     //

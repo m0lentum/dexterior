@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use glyphon as gh;
 use itertools::izip;
@@ -19,8 +19,8 @@ pub(crate) struct TextPipeline {
     renderer: gh::TextRenderer,
     /// Glyphon requires us to draw all the text in one call,
     /// so we collect each text request into a queue and flush it at the end of a frame.
-    /// Buffers are wrapped in Rcs to facilitate caching.
-    pub draw_queue: Vec<Rc<TextBuffer>>,
+    /// Buffers are wrapped in Arcs to facilitate caching.
+    pub draw_queue: Vec<Arc<TextBuffer>>,
 }
 
 /// Parameters for displaying text.
@@ -109,12 +109,14 @@ pub(crate) struct TextBuffer {
 /// so the perf cost of redoing layout each frame is acceptable
 /// to simplify the API, at least for now.
 pub(crate) struct CachedText {
-    buf: Rc<TextBuffer>,
+    buf: Arc<TextBuffer>,
 }
 
 impl TextBuffer {
     pub fn cache(self) -> CachedText {
-        CachedText { buf: Rc::new(self) }
+        CachedText {
+            buf: Arc::new(self),
+        }
     }
 }
 

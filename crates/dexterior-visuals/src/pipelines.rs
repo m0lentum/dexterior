@@ -17,7 +17,7 @@ use text::{CachedText, TextParams, TextPipeline};
 
 use itertools::izip;
 use nalgebra as na;
-use std::{cell::OnceCell, collections::HashMap};
+use std::{collections::HashMap, sync::OnceLock};
 
 use crate::{
     camera::Camera,
@@ -27,8 +27,8 @@ use dexterior_core as dex;
 
 pub(crate) struct Renderer {
     // pipelines that aren't always used are created lazily on demand
-    gradient_pl: OnceCell<VertexColorsPipeline>,
-    flat_tri_pl: OnceCell<VertexColorsPipeline>,
+    gradient_pl: OnceLock<VertexColorsPipeline>,
+    flat_tri_pl: OnceLock<VertexColorsPipeline>,
     line_pl: LinePipeline,
     text_pl: TextPipeline,
     // some GPU resources are shared between different pipelines
@@ -78,8 +78,8 @@ impl Renderer {
         };
 
         Self {
-            gradient_pl: OnceCell::new(),
-            flat_tri_pl: OnceCell::new(),
+            gradient_pl: OnceLock::new(),
+            flat_tri_pl: OnceLock::new(),
             line_pl: LinePipeline::new(window, &resources),
             text_pl: TextPipeline::new(window),
             resources,
