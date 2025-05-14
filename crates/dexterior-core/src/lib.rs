@@ -29,6 +29,7 @@ pub(crate) mod permutation;
 // nalgebra re-exports of common types for convenience
 
 pub use nalgebra as na;
+pub use nalgebra_sparse as nas;
 /// Type alias for a 2D `nalgebra` vector.
 pub type Vec2 = na::Vector2<f64>;
 /// Type alias for a 2D `nalgebra` unit vector.
