@@ -194,7 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .exclude_subset(&mesh.subset_complement(&layer_boundary_edges)),
         w_step: dt * mu_scaling * mesh.star() * mesh.d(),
         v_step: dt * density_scaling.clone() * mesh.star() * mesh.d(),
-        v_step_interp: (dt * density_scaling * mesh.d() * interp)
+        v_step_interp: (dt * density_scaling * mesh.d() * interp.clone())
             .exclude_subset(&mesh.subset_complement(&layer_boundary_edges)),
     };
 
@@ -275,7 +275,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     window.run_animation(dv::Animation {
         mesh: &mesh,
         params: dv::AnimationParams {
-            color_map_range: Some(-color_map_range..color_map_range),
+            color_map_range: Some(-0.0..1.0),
             ..Default::default()
         },
         dt,
@@ -333,6 +333,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 draw.triangle_colors_dual(&state.w);
             }
+
+            let arst =
+                mesh.integrate_cochain(dex::quadrature::Pointwise(|p| p[0] * p[1] / (PI * PI)));
+            let inted = &interp * &arst;
+            draw.vertex_colors(&inted);
 
             draw.wireframe(dv::WireframeParams {
                 width: dv::LineWidth::ScreenPixels(1.),
