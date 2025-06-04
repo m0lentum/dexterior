@@ -163,6 +163,18 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
         self.simplices[dim].len()
     }
 
+    /// Get the number of `DIM`-cells in the dual mesh.
+    #[inline]
+    pub fn dual_cell_count<const DIM: usize>(&self) -> usize {
+        self.dual_cell_count_dyn(DIM)
+    }
+
+    /// Dual cell count taking the dimension as a runtime parameter.
+    #[inline]
+    fn dual_cell_count_dyn(&self, dim: usize) -> usize {
+        self.simplex_count_dyn(MESH_DIM - dim)
+    }
+
     /// Get a view into a simplex by its index in the data.
     #[inline]
     pub fn get_simplex_by_index<const DIM: usize>(
@@ -185,6 +197,29 @@ impl<const MESH_DIM: usize> SimplicialMesh<MESH_DIM> {
             mesh: self,
             index: idx,
             indices: &self.simplices[Dim::USIZE].indices[idx_range],
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Get a view into a dual cell by its index in the data.
+    #[inline]
+    pub fn get_dual_cell_by_index<const DIM: usize>(
+        &self,
+        idx: usize,
+    ) -> DualCellView<'_, na::Const<DIM>, MESH_DIM>
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+    {
+        self.get_dual_cell_by_index_impl::<na::Const<DIM>>(idx)
+    }
+
+    fn get_dual_cell_by_index_impl<Dim: na::DimName>(
+        &self,
+        idx: usize,
+    ) -> DualCellView<'_, Dim, MESH_DIM> {
+        DualCellView {
+            mesh: self,
+            index: idx,
             _marker: std::marker::PhantomData,
         }
     }
