@@ -181,7 +181,7 @@ where
 
     /// Get the primal simplex corresponding to this cell.
     #[inline]
-    pub fn dual(&self) -> SimplexView<'_, na::DimNameDiff<na::Const<MESH_DIM>, CellDim>, MESH_DIM> {
+    pub fn dual(self) -> SimplexView<'a, na::DimNameDiff<na::Const<MESH_DIM>, CellDim>, MESH_DIM> {
         self.mesh.get_simplex_by_index_impl(self.index)
     }
 }
