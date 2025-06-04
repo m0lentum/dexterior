@@ -1,7 +1,7 @@
 use fixedbitset as fb;
 use nalgebra as na;
 
-use super::{Dual, DualCellView, Primal, SimplexView, SimplicialMesh};
+use super::{Dual, DualCellView, MeshPrimality, Primal, SimplexView, SimplicialMesh};
 
 /// A subset of cells in a mesh.
 ///
@@ -38,6 +38,7 @@ impl<Dim, Primality> Eq for SubsetImpl<Dim, Primality> where Dim: na::DimName {}
 impl<Dim, Primality> SubsetImpl<Dim, Primality>
 where
     Dim: na::DimName,
+    Primality: MeshPrimality,
 {
     #[inline]
     pub(super) fn new(indices: fb::FixedBitSet) -> Self {
@@ -53,22 +54,16 @@ where
         Self::new(bits)
     }
 
-    /// Create a subset containing the simplices in the given mesh
-    /// that pass the given predicate.
-    pub fn from_predicate<const MESH_DIM: usize>(
-        mesh: &SimplicialMesh<MESH_DIM>,
-        pred: impl Fn(SimplexView<Dim, MESH_DIM>) -> bool,
-    ) -> Self
+    /// Create a subset containing the dual elements of this one.
+    #[inline]
+    pub fn dual<const MESH_DIM: usize>(
+        &self,
+        _mesh: &SimplicialMesh<MESH_DIM>,
+    ) -> SubsetImpl<na::DimNameDiff<na::Const<MESH_DIM>, Dim>, Primality::Opposite>
     where
         na::Const<MESH_DIM>: na::DimNameSub<Dim>,
     {
-        let bits: fb::FixedBitSet = (0..mesh.simplex_count_dyn(Dim::USIZE))
-            .map(|i| mesh.get_simplex_by_index_impl(i))
-            .enumerate()
-            .filter(|(_, s)| pred(*s))
-            .map(|(i, _)| i)
-            .collect();
-        Self::new(bits)
+        SubsetImpl::new(self.indices.clone())
     }
 
     /// Take the intersection (i.e. set of cells that are in both)
@@ -111,6 +106,24 @@ impl<Dim> SubsetImpl<Dim, Primal>
 where
     Dim: na::DimName,
 {
+    /// Create a subset containing the simplices in the given mesh
+    /// that pass the given predicate.
+    pub fn from_predicate<const MESH_DIM: usize>(
+        mesh: &SimplicialMesh<MESH_DIM>,
+        pred: impl Fn(SimplexView<Dim, MESH_DIM>) -> bool,
+    ) -> Self
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
+    {
+        let bits: fb::FixedBitSet = (0..mesh.simplex_count_dyn(Dim::USIZE))
+            .map(|i| mesh.get_simplex_by_index_impl(i))
+            .enumerate()
+            .filter(|(_, s)| pred(*s))
+            .map(|(i, _)| i)
+            .collect();
+        Self::new(bits)
+    }
+
     /// Create a subset containing the simplices yielded by an iterator.
     pub fn from_simplex_iter<'a, const MESH_DIM: usize>(
         iter: impl Iterator<Item = SimplexView<'a, Dim, MESH_DIM>>,
@@ -132,16 +145,34 @@ where
     }
 }
 
-impl<const DIM: usize> SubsetImpl<na::Const<DIM>, Dual>
+impl<Dim> SubsetImpl<Dim, Dual>
 where
-    na::Const<DIM>: na::DimName,
+    Dim: na::DimName,
 {
-    /// Create a subset containing the dual cells yielded by an iterator.
-    pub fn from_cell_iter<'a, const MESH_DIM: usize>(
-        iter: impl Iterator<Item = DualCellView<'a, na::Const<DIM>, MESH_DIM>>,
+    /// Create a subset containing the dual cells in the mesh
+    /// that pass the given predicate.
+    pub fn from_predicate_dual<const MESH_DIM: usize>(
+        mesh: &SimplicialMesh<MESH_DIM>,
+        pred: impl Fn(DualCellView<Dim, MESH_DIM>) -> bool,
     ) -> Self
     where
-        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
+    {
+        let bits: fb::FixedBitSet = (0..mesh.dual_cell_count_dyn(Dim::USIZE))
+            .map(|i| mesh.get_dual_cell_by_index_impl::<Dim>(i))
+            .enumerate()
+            .filter(|(_, c)| pred(*c))
+            .map(|(i, _)| i)
+            .collect();
+        Self::new(bits)
+    }
+
+    /// Create a subset containing the dual cells yielded by an iterator.
+    pub fn from_cell_iter<'a, const MESH_DIM: usize>(
+        iter: impl Iterator<Item = DualCellView<'a, Dim, MESH_DIM>>,
+    ) -> Self
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
     {
         let bits: fb::FixedBitSet = iter.map(|s| s.index()).collect();
         Self::new(bits)
@@ -149,12 +180,9 @@ where
 
     /// Check if the subset contains a given dual cell.
     #[inline]
-    pub fn contains<const MESH_DIM: usize>(
-        &self,
-        cell: DualCellView<'_, na::Const<DIM>, MESH_DIM>,
-    ) -> bool
+    pub fn contains<const MESH_DIM: usize>(&self, cell: DualCellView<'_, Dim, MESH_DIM>) -> bool
     where
-        na::Const<MESH_DIM>: na::DimNameSub<na::Const<DIM>>,
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
     {
         self.indices.contains(cell.index())
     }
