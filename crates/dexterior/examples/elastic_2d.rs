@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         };
 
-        let boundary = mesh.subset_boundary(&tris);
+        let boundary = tris.manifold_boundary(&mesh);
 
         let lambda = 1.;
         let mu = 1.;
@@ -191,11 +191,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // (and break at the mesh boundary due to truncated dual cells)
         // so we can safely exclude the rest
         q_step_interp: (dt * density_scaling.clone() * mesh.d() * interp.clone())
-            .exclude_subset(&mesh.subset_complement(&layer_boundary_edges)),
+            .exclude_subset(&layer_boundary_edges.complement(&mesh)),
         w_step: dt * mu_scaling * mesh.star() * mesh.d(),
         v_step: dt * density_scaling.clone() * mesh.star() * mesh.d(),
         v_step_interp: (dt * density_scaling * mesh.d() * interp.clone())
-            .exclude_subset(&mesh.subset_complement(&layer_boundary_edges)),
+            .exclude_subset(&layer_boundary_edges.complement(&mesh)),
     };
 
     // source terms

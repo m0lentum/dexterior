@@ -10,7 +10,8 @@ use super::{Dual, DualCellView, MeshPrimality, Primal, SimplexView, SimplicialMe
 /// ][crate::MatrixOperator::exclude_subset],
 /// useful for boundary conditions and spatially varying parameters.
 ///
-/// You can iterate over the simplices in this set with [`SimplicialMesh::simplices_in`].
+/// You can iterate over the cells in this set with [`SimplicialMesh::simplices_in`]
+/// or [`SimplicialMesh::dual_cells_in`].
 pub type Subset<const DIM: usize, Primality> = SubsetImpl<na::Const<DIM>, Primality>;
 
 /// The subset type used internally by dexterior,
@@ -52,6 +53,43 @@ where
     pub fn from_indices(indices: impl Iterator<Item = usize>) -> Self {
         let bits = fb::FixedBitSet::from_iter(indices);
         Self::new(bits)
+    }
+
+    /// Create an empty subset.
+    ///
+    /// This isn't particularly useful on its own,
+    /// but can be handy when taking unions of many subsets.
+    pub fn new_empty() -> Self {
+        Self::new(fb::FixedBitSet::new())
+    }
+
+    /// Create a subset containing every `DIM`-cell in the mesh.
+    ///
+    /// This isn't particularly useful on its own,
+    /// but can be handy when taking intersections of many subsets.
+    pub fn new_full<const MESH_DIM: usize>(mesh: &SimplicialMesh<MESH_DIM>) -> Self
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
+    {
+        let simplex_count = if Primality::IS_PRIMAL {
+            mesh.simplex_count_dyn(Dim::USIZE)
+        } else {
+            mesh.simplex_count_dyn(MESH_DIM - Dim::USIZE)
+        };
+        let mut indices = fb::FixedBitSet::with_capacity(simplex_count);
+        indices.set_range(.., true);
+        Self::new(indices)
+    }
+
+    /// Take the complement of a subset, i.e. the cells not in that subset.
+    pub fn complement<const MESH_DIM: usize>(&self, mesh: &SimplicialMesh<MESH_DIM>) -> Self
+    where
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
+    {
+        let mut indices = Self::new_full(mesh).indices;
+        indices.set_range(.., true);
+        indices.difference_with(&self.indices);
+        Self::new(indices)
     }
 
     /// Create a subset containing the dual elements of this one.
@@ -99,6 +137,40 @@ where
     #[inline]
     pub fn count(&self) -> usize {
         self.indices.count_ones(..)
+    }
+}
+
+impl<const MESH_DIM: usize> SubsetImpl<na::Const<MESH_DIM>, Primal> {
+    /// Get a subset representing the boundary of a subset
+    /// of highest-dimensional simplices in a mesh.
+    ///
+    /// These are the `N - 1`-simplices
+    /// whose coboundary only includes one of this subset's simplices.
+    pub fn manifold_boundary(
+        &self,
+        mesh: &SimplicialMesh<MESH_DIM>,
+    ) -> SubsetImpl<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>
+    where
+        // funky trait bounds to get the iterators in the impl working,
+        // these shouldn't limit anything in practice
+        na::Const<MESH_DIM>: na::DimNameSub<na::U1>
+            + na::DimNameSub<na::Const<MESH_DIM>>
+            + na::DimNameSub<na::DimNameSum<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, na::U1>>
+            + na::DimNameSub<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>>,
+        na::DimNameDiff<na::Const<MESH_DIM>, na::U1>: na::DimNameAdd<na::U1>,
+    {
+        let simplices = mesh
+            .simplices_in::<MESH_DIM>(self)
+            .flat_map(|s| s.boundary().map(|(_, b)| b))
+            .filter(|b| {
+                b.coboundary()
+                    .filter(|(_, cob)| self.indices.contains(cob.index()))
+                    .count()
+                    == 1
+            });
+        SubsetImpl::<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>::from_simplex_iter(
+            simplices,
+        )
     }
 }
 
@@ -208,14 +280,14 @@ mod tests {
         assert_eq!(pred_subset.indices, iter_subset.indices);
         itertools::assert_equal(idx_subset.indices.ones(), indices.iter().cloned());
 
-        let pred_complement = mesh.subset_complement(&pred_subset);
+        let pred_complement = pred_subset.complement(&mesh);
         for edge in mesh.simplices::<1>() {
             assert!(pred_subset.contains(edge) ^ pred_complement.contains(edge));
         }
 
-        let full_subset = mesh.full_subset::<2, Dual>();
-        let empty_subset = mesh.empty_subset::<2, Dual>();
-        let empty_complement = mesh.subset_complement(&empty_subset);
+        let full_subset = Subset::<2, Dual>::new_full(&mesh);
+        let empty_subset = Subset::<2, Dual>::new_empty();
+        let empty_complement = empty_subset.complement(&mesh);
         for cell in mesh.dual_cells() {
             assert!(full_subset.contains(cell));
             assert!(!empty_subset.contains(cell));
