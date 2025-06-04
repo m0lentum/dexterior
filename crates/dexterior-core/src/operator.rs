@@ -133,6 +133,20 @@ where
         }
         self
     }
+
+    /// Set all output elements that aren't part of the given subset to zero.
+    pub fn restrict_to_subset(
+        mut self,
+        set: &SubsetImpl<
+            <<Self as Operator>::Output as Operand>::Dimension,
+            <<Self as Operator>::Output as Operand>::Primality,
+        >,
+    ) -> Self {
+        for row_idx in (0..self.diagonal.len()).filter(|i| !set.indices.contains(*i)) {
+            self.diagonal[row_idx] = 0.0;
+        }
+        self
+    }
 }
 
 impl<Input, Output> PartialEq for DiagonalOperator<Input, Output> {
@@ -255,6 +269,23 @@ where
         set: &SubsetImpl<<Output as Operand>::Dimension, <Output as Operand>::Primality>,
     ) -> Self {
         self.mat = drop_csr_rows(self.mat, &set.indices);
+        self
+    }
+
+    /// Set all output elements that aren't part of the given subset to zero.
+    pub fn restrict_to_subset(
+        mut self,
+        set: &SubsetImpl<
+            <<Self as Operator>::Output as Operand>::Dimension,
+            <<Self as Operator>::Output as Operand>::Primality,
+        >,
+    ) -> Self {
+        let mut inv_set = set.indices.clone();
+        // make sure the bitset has enough range to cover the entire mesh
+        inv_set.grow(self.mat.nrows());
+        inv_set.toggle_range(..);
+
+        self.mat = drop_csr_rows(self.mat, &inv_set);
         self
     }
 }
