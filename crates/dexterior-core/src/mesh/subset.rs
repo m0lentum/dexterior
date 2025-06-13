@@ -50,7 +50,7 @@ where
     }
 
     /// Create a subset from an iterator of simplex indices.
-    pub fn from_indices(indices: impl Iterator<Item = usize>) -> Self {
+    pub fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self {
         let bits = fb::FixedBitSet::from_iter(indices);
         Self::new(bits)
     }
@@ -138,39 +138,137 @@ where
     pub fn count(&self) -> usize {
         self.indices.count_ones(..)
     }
-}
 
-impl<const MESH_DIM: usize> SubsetImpl<na::Const<MESH_DIM>, Primal> {
-    /// Get a subset representing the boundary of a subset
-    /// of highest-dimensional simplices in a mesh.
+    /// Apply the boundary operator to this subset,
+    /// yielding the set of `k - 1`-cells
+    /// which are on the boundary of some cell in this subset.
     ///
-    /// These are the `N - 1`-simplices
-    /// whose coboundary only includes one of this subset's simplices.
-    pub fn manifold_boundary(
+    /// This is equivalent to creating subsets with iterators like this:
+    /// ```
+    /// # use dexterior_core::{Dual, Primal, Subset, mesh::tiny_mesh_2d};
+    /// # let mesh = tiny_mesh_2d();
+    /// let primal_tris: Subset<2, Primal> = Subset::from_indices([0, 1, 2]);
+    /// let boundary_edges: Subset<1, Primal> = primal_tris.boundary(&mesh);
+    /// let iter_edges = Subset::from_simplex_iter(
+    ///     mesh.simplices_in(&primal_tris).flat_map(|s| s.boundary().map(|(_, bs)| bs))
+    /// );
+    /// assert_eq!(boundary_edges, iter_edges);
+    /// #
+    /// # let boundary_verts: Subset<0, Primal> = boundary_edges.boundary(&mesh);
+    /// # let iter_verts = Subset::from_simplex_iter(
+    /// #    mesh.simplices_in(&boundary_edges).flat_map(|s| s.boundary().map(|(_, bs)| bs))
+    /// # );
+    /// # assert_eq!(boundary_verts, iter_verts);
+    ///
+    /// // also works for dual cells
+    /// // (these currently have a limited iterator API,
+    /// // so the iterator version is even more verbose)
+    /// let dual_cells: Subset<2, Dual> = Subset::from_indices([0, 1, 2]);
+    /// let boundary_edges: Subset<1, Dual> = dual_cells.boundary(&mesh);
+    /// let iter_edges = Subset::from_cell_iter(
+    ///     mesh.dual_cells_in(&dual_cells).flat_map(|c| {
+    ///         c.dual().coboundary().map(|(_, dbs)| dbs.dual())
+    ///     })
+    /// );
+    /// assert_eq!(boundary_edges, iter_edges);
+    /// #
+    /// # let boundary_verts: Subset<0, Dual> = boundary_edges.boundary(&mesh);
+    /// # let iter_verts = Subset::from_cell_iter(
+    /// #    mesh.dual_cells_in(&boundary_edges).flat_map(|c| {
+    /// #        c.dual().coboundary().map(|(_, dbs)| dbs.dual())
+    /// #    })
+    /// # );
+    /// # assert_eq!(boundary_verts, iter_verts);
+    /// ```
+    ///
+    /// This method does not exist for 0-cells.
+    pub fn boundary<const MESH_DIM: usize>(
         &self,
         mesh: &SimplicialMesh<MESH_DIM>,
-    ) -> SubsetImpl<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>
+    ) -> SubsetImpl<na::DimNameDiff<Dim, na::U1>, Primality>
     where
-        // funky trait bounds to get the iterators in the impl working,
-        // these shouldn't limit anything in practice
-        na::Const<MESH_DIM>: na::DimNameSub<na::U1>
-            + na::DimNameSub<na::Const<MESH_DIM>>
-            + na::DimNameSub<na::DimNameSum<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, na::U1>>
-            + na::DimNameSub<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>>,
-        na::DimNameDiff<na::Const<MESH_DIM>, na::U1>: na::DimNameAdd<na::U1>,
+        Dim: na::DimNameSub<na::U1>,
+        na::Const<MESH_DIM>: na::DimNameSub<Dim>,
     {
-        let simplices = mesh
-            .simplices_in::<MESH_DIM>(self)
-            .flat_map(|s| s.boundary().map(|(_, b)| b))
-            .filter(|b| {
-                b.coboundary()
-                    .filter(|(_, cob)| self.indices.contains(cob.index()))
-                    .count()
-                    == 1
-            });
-        SubsetImpl::<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>::from_simplex_iter(
-            simplices,
-        )
+        let map = if Primality::IS_PRIMAL {
+            &mesh.simplices[Dim::USIZE].boundary_map
+        } else {
+            &mesh.simplices[MESH_DIM - Dim::USIZE].coboundary_map
+        };
+
+        let mut new_indices = fb::FixedBitSet::new();
+        for row_idx in self.indices.ones() {
+            let Some(row) = map.get_row(row_idx) else {
+                continue;
+            };
+            new_indices.extend(row.col_indices().iter().cloned());
+        }
+        SubsetImpl::new(new_indices)
+    }
+
+    /// Apply the coboundary operator to this subset,
+    /// yielding the set of `k + 1`-cells
+    /// which have some cell from this subset on their boundary.
+    ///
+    /// This is equivalent to creating subsets with iterators like this:
+    /// ```
+    /// # use dexterior_core::{Dual, Primal, Subset, mesh::tiny_mesh_2d};
+    /// # let mesh = tiny_mesh_2d();
+    /// let primal_verts: Subset<0, Primal> = Subset::from_indices([0, 1, 2]);
+    /// let cob_edges: Subset<1, Primal> = primal_verts.coboundary(&mesh);
+    /// let iter_edges = Subset::from_simplex_iter(
+    ///     mesh.simplices_in(&primal_verts).flat_map(|s| s.coboundary().map(|(_, bs)| bs))
+    /// );
+    /// assert_eq!(cob_edges, iter_edges);
+    ///
+    /// # let cob_tris: Subset<2, Primal> = cob_edges.coboundary(&mesh);
+    /// # let iter_tris = // ...
+    /// # Subset::from_simplex_iter(
+    /// #    mesh.simplices_in(&cob_edges).flat_map(|s| s.coboundary().map(|(_, bs)| bs))
+    /// # );
+    /// # assert_eq!(cob_tris, iter_tris);
+    /// #
+    /// let dual_verts: Subset<0, Dual> = Subset::from_indices([0, 1, 2]);
+    /// let cob_edges: Subset<1, Dual> = dual_verts.coboundary(&mesh);
+    /// let iter_edges = Subset::from_cell_iter(
+    ///     mesh.dual_cells_in(&dual_verts).flat_map(|c| {
+    ///         c.dual().boundary().map(|(_, dbs)| dbs.dual())
+    ///     })
+    /// );
+    /// assert_eq!(cob_edges, iter_edges);
+    /// # let cob_tris: Subset<2, Dual> = cob_edges.coboundary(&mesh);
+    /// # let iter_tris = // ...
+    /// # Subset::from_cell_iter(
+    /// #    mesh.dual_cells_in(&cob_edges).flat_map(|c| {
+    /// #        c.dual().boundary().map(|(_, dbs)| dbs.dual())
+    /// #    })
+    /// # );
+    /// # assert_eq!(cob_tris, iter_tris);
+    /// ```
+    ///
+    /// This method does not exist for `MESH_DIM`-cells.
+    pub fn coboundary<const MESH_DIM: usize>(
+        &self,
+        mesh: &SimplicialMesh<MESH_DIM>,
+    ) -> SubsetImpl<na::DimNameSum<Dim, na::U1>, Primality>
+    where
+        Dim: na::DimNameAdd<na::U1>,
+        na::Const<MESH_DIM>: na::DimNameSub<na::DimNameSum<Dim, na::U1>>,
+    {
+        let map = if Primality::IS_PRIMAL {
+            &mesh.simplices[Dim::USIZE].coboundary_map
+        } else {
+            &mesh.simplices[MESH_DIM - Dim::USIZE].boundary_map
+        };
+
+        let mut new_indices = fb::FixedBitSet::new();
+        for row_idx in self.indices.ones() {
+            let Some(row) = map.get_row(row_idx) else {
+                continue;
+            };
+            new_indices.extend(row.col_indices().iter().cloned());
+        }
+        SubsetImpl::new(new_indices)
     }
 }
 
@@ -257,6 +355,43 @@ where
         na::Const<MESH_DIM>: na::DimNameSub<Dim>,
     {
         self.indices.contains(cell.index())
+    }
+}
+
+impl<const MESH_DIM: usize> SubsetImpl<na::Const<MESH_DIM>, Primal> {
+    /// Get a subset representing the boundary manifold of a region
+    /// defined by a subset of highest-dimensional simplices in a mesh.
+    ///
+    /// These are the `N - 1`-simplices
+    /// whose coboundary only includes one of this subset's simplices.
+    /// This is different from [`boundary`][Self::boundary],
+    /// which applies the boundary operator to a subset,
+    /// yielding every `k - 1`-cell that bounds any cell in that subset.
+    pub fn manifold_boundary(
+        &self,
+        mesh: &SimplicialMesh<MESH_DIM>,
+    ) -> SubsetImpl<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>
+    where
+        // funky trait bounds to get the iterators in the impl working,
+        // these shouldn't limit anything in practice
+        na::Const<MESH_DIM>: na::DimNameSub<na::U1>
+            + na::DimNameSub<na::Const<MESH_DIM>>
+            + na::DimNameSub<na::DimNameSum<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, na::U1>>
+            + na::DimNameSub<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>>,
+        na::DimNameDiff<na::Const<MESH_DIM>, na::U1>: na::DimNameAdd<na::U1>,
+    {
+        let simplices = mesh
+            .simplices_in::<MESH_DIM>(self)
+            .flat_map(|s| s.boundary().map(|(_, b)| b))
+            .filter(|b| {
+                b.coboundary()
+                    .filter(|(_, cob)| self.indices.contains(cob.index()))
+                    .count()
+                    == 1
+            });
+        SubsetImpl::<na::DimNameDiff<na::Const<MESH_DIM>, na::U1>, Primal>::from_simplex_iter(
+            simplices,
+        )
     }
 }
 
